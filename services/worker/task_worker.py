@@ -17,6 +17,7 @@ import asyncio
 import logging
 import platform
 import random
+from typing import Optional
 
 from arq import cron
 from arq.connections import RedisSettings
@@ -39,7 +40,7 @@ logger = logging.getLogger(__name__)
 # ── Global worker state ─────────────────────────────────────────────────────
 
 WORKER_ID = f"{platform.node()}-{os.getpid()}"
-_session_pool: SessionPool | None = None
+_session_pool: Optional[SessionPool] = None
 _active_jobs = 0
 _total_processed = 0
 

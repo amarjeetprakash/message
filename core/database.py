@@ -8,14 +8,15 @@ high-throughput distributed services.
 import ssl
 import logging
 import certifi
+from typing import Optional
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 from core.config import MONGODB_URI, MONGODB_DB_NAME
 
 logger = logging.getLogger(__name__)
 
-_client: AsyncIOMotorClient | None = None
-_db: AsyncIOMotorDatabase | None = None
+_client: Optional[AsyncIOMotorClient] = None
+_db: Optional[AsyncIOMotorDatabase] = None
 
 
 def get_database() -> AsyncIOMotorDatabase:

@@ -3,6 +3,7 @@ Redis connection utilities for ARQ job queue and general caching.
 """
 
 import logging
+from typing import Optional
 from arq.connections import RedisSettings, ArqRedis, create_pool
 from urllib.parse import urlparse
 
@@ -10,7 +11,7 @@ from core.config import REDIS_URL
 
 logger = logging.getLogger(__name__)
 
-_pool: ArqRedis | None = None
+_pool: Optional[ArqRedis] = None
 
 
 def get_redis_settings() -> RedisSettings:
