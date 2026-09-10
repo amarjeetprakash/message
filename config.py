@@ -31,6 +31,10 @@ def _safe_int(value: str, default: int = 0) -> int:
     except (ValueError, TypeError):
         return default
 
+# ============== Telegram API Credentials ==============
+API_ID = _safe_int(os.getenv("API_ID", "27018379"), 27018379)
+API_HASH = os.getenv("API_HASH", "2fcf836dc55474ea1d593db8bf0947ae").strip()
+
 # ============== Owner/Admin ==============
 OWNER_ID = _safe_int(os.getenv("OWNER_ID", "8395808382"))
 

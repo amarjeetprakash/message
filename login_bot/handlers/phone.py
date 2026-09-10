@@ -10,30 +10,36 @@ from telegram.ext import ContextTypes
 from login_bot.utils.keyboards import get_phone_input_keyboard, get_confirm_phone_keyboard, get_cancel_keyboard, get_api_input_keyboard
 
 
+from config import API_ID, API_HASH
+
+
 async def add_account_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start add account flow - ask for API ID first."""
+    """Start add account flow - ask for phone number directly using system API credentials."""
     query = update.callback_query
     await query.answer()
     
-    text = """
-⚙️ *Step 1: Enter Telegram API ID*
+    # Store system API credentials
+    context.user_data["api_id"] = API_ID
+    context.user_data["api_hash"] = API_HASH
+    context.user_data["state"] = "waiting_phone"
 
-Please enter your **API ID** from [my.telegram.org](https://my.telegram.org).
-It should be a numeric value.
+    text = """
+📱 *Step 1: Enter Phone Number*
+
+Please enter your phone number with country code.
+Example: `+91XXXXXXXXXX`
 """
     
     await query.edit_message_text(
         text,
         parse_mode="Markdown",
-        reply_markup=get_api_input_keyboard(),
+        reply_markup=get_phone_input_keyboard(),
         disable_web_page_preview=True
     )
-    
-    context.user_data["state"] = "waiting_api_id"
 
 
 async def receive_api_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process received API ID."""
+    """Process received API ID (legacy fallback)."""
     state = context.user_data.get("state")
     if state != "waiting_api_id":
         return
@@ -64,7 +70,7 @@ Now please enter your **API Hash** from [my.telegram.org](https://my.telegram.or
 
 
 async def receive_api_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process received API Hash."""
+    """Process received API Hash (legacy fallback)."""
     state = context.user_data.get("state")
     if state != "waiting_api_hash":
         return
@@ -83,7 +89,7 @@ async def receive_api_hash(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["state"] = "waiting_phone"
 
     text = """
-📱 *Step 3: Enter Phone Number*
+📱 *Step 2: Enter Phone Number*
 
 Finally, enter your phone number with country code.
 Example: `+91XXXXXXXXXX`
@@ -96,7 +102,7 @@ Example: `+91XXXXXXXXXX`
 
 
 async def receive_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Process received phone number."""
+    """Process received phone number with smart auto-formatting."""
     state = context.user_data.get("state")
     
     if state != "waiting_phone":
@@ -104,23 +110,17 @@ async def receive_phone_number(update: Update, context: ContextTypes.DEFAULT_TYP
     
     phone = update.message.text.strip()
     
-    # Validate phone number
+    # Remove spaces, dashes, parentheses
+    phone = re.sub(r"[\s\-\(\)]", "", phone)
+
+    # Auto-prepend '+' if omitted by user
     if not phone.startswith("+"):
-        await update.message.reply_text(
-            "❌ Phone number must start with + (country code)\n\n"
-            "Example: `+91XXXXXXXXXX`",
-            parse_mode="Markdown",
-            reply_markup=get_phone_input_keyboard(),
-        )
-        return
-    
-    # Remove spaces and dashes
-    phone = re.sub(r"[\s\-]", "", phone)
+        phone = "+" + phone
     
     # Check if it contains only digits after +
     if not re.match(r"^\+\d{10,15}$", phone):
         await update.message.reply_text(
-            "❌ Invalid phone number format.\n\n"
+            "❌ *Invalid Phone Number Format*\n\n"
             "Please enter a valid phone number with country code.\n"
             "Example: `+91XXXXXXXXXX`",
             parse_mode="Markdown",
@@ -128,6 +128,11 @@ async def receive_phone_number(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return
     
+    # Ensure system API credentials are set if missing
+    if not context.user_data.get("api_id") or not context.user_data.get("api_hash"):
+        context.user_data["api_id"] = API_ID
+        context.user_data["api_hash"] = API_HASH
+
     # Store phone and ask for confirmation
     context.user_data["phone"] = phone
     context.user_data["state"] = "confirm_phone"
@@ -137,7 +142,7 @@ async def receive_phone_number(update: Update, context: ContextTypes.DEFAULT_TYP
 
 📱 Phone: `{phone}`
 
-Send OTP now?
+Send OTP verification code now?
 """
     
     await update.message.reply_text(

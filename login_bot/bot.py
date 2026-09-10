@@ -34,6 +34,7 @@ from login_bot.handlers.otp import (
     send_otp_callback,
     resend_otp_callback,
     otp_keypad_callback,
+    receive_otp_text,
 )
 from login_bot.handlers.twofa import receive_2fa_password
 from login_bot.handlers.manage import (
@@ -103,6 +104,8 @@ def create_application() -> Application:
             await receive_api_hash(update, context)
         elif state == "waiting_phone":
             await receive_phone_number(update, context)
+        elif state == "waiting_otp":
+            await receive_otp_text(update, context)
         elif state == "waiting_2fa":
             await receive_2fa_password(update, context)
 

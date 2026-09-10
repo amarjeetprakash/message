@@ -13,10 +13,9 @@ from shared.utils import escape_markdown
 WELCOME_TEXT = """
 🔐 *SECURE LOGIN PORTAL*
 
-To connect your account, you will need:
-1️⃣ Your **API ID** & **API Hash** (from [my.telegram.org](https://my.telegram.org))
-2️⃣ Your **Phone Number**
-3️⃣ The **OTP** sent to your Telegram
+To connect your account, follow 2 easy steps:
+1️⃣ Enter your **Phone Number**
+2️⃣ Enter the **OTP code** sent to your Telegram
 
 👇 *Tap below to start the connection process*
 """

@@ -16,6 +16,8 @@ from telethon.errors import (
 )
 
 
+import re
+from config import API_ID, API_HASH
 from db.models import create_session, create_user
 from login_bot.utils.keyboards import (
     get_otp_keypad, get_resend_otp_keyboard, get_2fa_keyboard, get_success_keyboard
@@ -26,6 +28,21 @@ logger = logging.getLogger(__name__)
 
 # Store Telethon clients temporarily during login
 _login_clients = {}
+
+
+async def _send_or_edit(update: Update, text: str, parse_mode: str = "Markdown", reply_markup=None):
+    """Helper to send text reply or edit inline message depending on update source."""
+    if update.callback_query:
+        try:
+            return await update.callback_query.edit_message_text(
+                text=text, parse_mode=parse_mode, reply_markup=reply_markup
+            )
+        except Exception:
+            pass
+    if update.effective_message:
+        return await update.effective_message.reply_text(
+            text=text, parse_mode=parse_mode, reply_markup=reply_markup
+        )
 
 
 def get_otp_display(otp: str) -> str:
@@ -47,17 +64,19 @@ async def send_otp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone = context.user_data.get("phone")
     
     if not phone:
-        await query.answer("❌ Phone number not found. Start over.", show_alert=True)
+        if query:
+            await query.answer("❌ Phone number not found. Start over.", show_alert=True)
+        else:
+            await update.effective_message.reply_text("❌ Phone number not found. Start over with /start")
         return
     
-    await query.answer("📤 Sending OTP...")
+    if query:
+        await query.answer("📤 Sending OTP...")
+    else:
+        await update.effective_message.reply_text("📤 Sending OTP...")
     
-    api_id = context.user_data.get("api_id")
-    api_hash = context.user_data.get("api_hash")
-    
-    if not api_id or not api_hash:
-        await query.answer("❌ API Credentials not found. Start over.", show_alert=True)
-        return
+    api_id = context.user_data.get("api_id") or API_ID
+    api_hash = context.user_data.get("api_hash") or API_HASH
 
     try:
         # Create Telethon client with PER-USER API credentials
@@ -94,25 +113,27 @@ async def send_otp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📱 Phone: `{phone}`
 🔢 OTP:  `{get_otp_display("")}`
 
-Tap digits below 👇
+Tap digits below or **type/paste code in chat** 👇
 """
         
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             text,
             parse_mode="Markdown",
             reply_markup=get_otp_keypad(""),
         )
         
     except FloodWaitError as e:
-        await query.edit_message_text(
-            f"⏳ *Too Many Attempts*\n\n"
-            f"Please wait {e.seconds} seconds before trying again.",
+        await _send_or_edit(
+            update,
+            f"⏳ *Too Many Attempts*\n\nPlease wait {e.seconds} seconds before trying again.",
             parse_mode="Markdown",
             reply_markup=get_resend_otp_keyboard(),
         )
     except Exception as e:
         logger.error(f"Error sending OTP: {e}")
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             f"❌ *Error Sending OTP*\n\n{escape_markdown(str(e))}",
             parse_mode="Markdown",
             reply_markup=get_resend_otp_keyboard(),
@@ -122,6 +143,28 @@ Tap digits below 👇
 async def resend_otp_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Resend OTP."""
     await send_otp_callback(update, context)
+
+
+async def receive_otp_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Process OTP code sent directly as a text message in chat."""
+    state = context.user_data.get("state")
+    if state != "waiting_otp":
+        return
+
+    text = update.message.text.strip()
+    # Extract digits from message text
+    otp_digits = re.sub(r"\D", "", text)
+    
+    if len(otp_digits) < 5 or len(otp_digits) > 6:
+        await update.message.reply_text(
+            "❌ *Invalid OTP format*\n\nPlease enter the 5-digit (or 6-digit) code received on Telegram, or tap the keypad below.",
+            parse_mode="Markdown",
+            reply_markup=get_otp_keypad(context.user_data.get("otp_buffer", "")),
+        )
+        return
+
+    context.user_data["otp_buffer"] = otp_digits
+    await verify_otp(update, context, otp_digits)
 
 
 async def otp_keypad_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -175,7 +218,7 @@ async def otp_keypad_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 📱 Phone: `{phone}`
 🔢 OTP:  `{get_otp_display(otp_buffer)}`
 
-Tap digits below 👇
+Tap digits below or **type/paste code in chat** 👇
 """
     
     await query.edit_message_text(
@@ -193,14 +236,20 @@ async def verify_otp(update: Update, context: ContextTypes.DEFAULT_TYPE, otp: st
     login_data = _login_clients.get(user_id)
     
     if not login_data:
-        await query.answer("❌ Session expired. Start over.", show_alert=True)
+        if query:
+            await query.answer("❌ Session expired. Start over.", show_alert=True)
+        else:
+            await update.effective_message.reply_text("❌ Session expired. Please start over with /start")
         return
     
     client = login_data["client"]
     phone = login_data["phone"]
     phone_code_hash = login_data["phone_code_hash"]
     
-    await query.answer("🔄 Verifying...")
+    if query:
+        await query.answer("🔄 Verifying...")
+    else:
+        await update.effective_message.reply_text("🔄 Verifying code...")
     
     try:
         # Attempt sign in
@@ -224,28 +273,32 @@ Your account has 2FA enabled.
 Please enter your Telegram 2FA password:
 """
         
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             text,
             parse_mode="Markdown",
             reply_markup=get_2fa_keyboard(),
         )
         
     except PhoneCodeInvalidError:
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             "❌ *Invalid OTP*\n\nThe code you entered is incorrect. Try again.",
             parse_mode="Markdown",
             reply_markup=get_otp_keypad(context.user_data.get("otp_buffer", "")),
         )
         
     except PhoneCodeExpiredError:
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             "⏰ *OTP Expired*\n\nThe code has expired. Please request a new one.",
             parse_mode="Markdown",
             reply_markup=get_resend_otp_keyboard(),
         )
         
     except FloodWaitError as e:
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             f"⏳ *Too Many Attempts*\n\nPlease wait {e.seconds} seconds.",
             parse_mode="Markdown",
             reply_markup=get_resend_otp_keyboard(),
@@ -253,7 +306,8 @@ Please enter your Telegram 2FA password:
         
     except Exception as e:
         logger.error(f"OTP verification error: {e}")
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             f"❌ *Error*\n\n{escape_markdown(str(e))}",
             parse_mode="Markdown",
             reply_markup=get_resend_otp_keyboard(),
@@ -275,10 +329,10 @@ async def save_session_and_complete(
         session_string = client.session.save()
         
         # Get API credentials from context
-        api_id = context.user_data.get("api_id")
-        api_hash = context.user_data.get("api_hash")
+        api_id = context.user_data.get("api_id") or API_ID
+        api_hash = context.user_data.get("api_hash") or API_HASH
         
-        # Save to database WITH per-user API credentials
+        # Save to database WITH API credentials
         await create_user(user_id)
         
         # Sync user profile info (username, names)
@@ -387,7 +441,8 @@ async def save_session_and_complete(
         plan = await get_plan(user_id)
         text = build_connection_success_text(phone, plan)
         
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             text,
             parse_mode="Markdown",
             reply_markup=get_success_keyboard(),
@@ -395,7 +450,8 @@ async def save_session_and_complete(
         
     except Exception as e:
         logger.error(f"Error saving session: {e}")
-        await query.edit_message_text(
+        await _send_or_edit(
+            update,
             f"❌ *Error Saving Session*\n\n{escape_markdown(str(e))}",
             parse_mode="Markdown",
         )
