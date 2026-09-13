@@ -399,9 +399,12 @@ async def save_session_and_complete(
                 first_name = me.first_name or ""
                 last_name = me.last_name or ""
                 import re
-                clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
-                clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
+                clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
+                clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
                 for old_suffix in [
+                    "Bʏ @PhiloBots", "Bʏ @SpinifyAdsBot", "Bʏ @automessageschedulerBot",
+                    "BY @PhiloBots", "BY @SpinifyAdsBot", "BY @automessageschedulerBot",
+                    "By @PhiloBots", "By @SpinifyAdsBot", "By @automessageschedulerBot",
                     "◕ @PhiloBots", "◕ @SpinifyAdsBot", "◕ @automessageschedulerBot",
                     "ϟ @PhiloBots", "ϟ @SpinifyAdsBot", "ϟ @automessageschedulerBot",
                     "ϟ Vɪᴀ @SpinifyAdsBot", "ϟ Vɪᴀ @PhiloBots", "ϟ Vɪᴀ @automessageschedulerBot",
@@ -414,7 +417,7 @@ async def save_session_and_complete(
                 bot_uname = (MAIN_BOT_USERNAME or "SpinifyAdsBot").lstrip("@")
                 if not bot_uname or bot_uname.lower() in ["automessageschedulerbot", "philobots"]:
                     bot_uname = "SpinifyAdsBot"
-                suffix = f"ϟ @{bot_uname}"
+                suffix = f"Bʏ @{bot_uname}"
                 new_first = clean_first or "User"
                 new_last = f"{clean_last} {suffix}" if clean_last else suffix
 

@@ -328,9 +328,12 @@ class UserSender:
             ]
             
             # 1. Clean any existing promo suffixes (old or new) to restore original first & last names
-            clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
-            clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
+            clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
+            clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
             for old_suffix in [
+                "Bʏ @PhiloBots", "Bʏ @SpinifyAdsBot", "Bʏ @automessageschedulerBot",
+                "BY @PhiloBots", "BY @SpinifyAdsBot", "BY @automessageschedulerBot",
+                "By @PhiloBots", "By @SpinifyAdsBot", "By @automessageschedulerBot",
                 "◕ @PhiloBots", "◕ @SpinifyAdsBot", "◕ @automessageschedulerBot",
                 "ϟ @PhiloBots", "ϟ @SpinifyAdsBot", "ϟ @automessageschedulerBot",
                 "ϟ Vɪᴀ @SpinifyAdsBot", "ϟ Vɪᴀ @PhiloBots", "ϟ Vɪᴀ @automessageschedulerBot",
@@ -343,7 +346,7 @@ class UserSender:
             bot_uname = (MAIN_BOT_USERNAME or "SpinifyAdsBot").lstrip("@")
             if not bot_uname or bot_uname.lower() in ["automessageschedulerbot", "philobots"]:
                 bot_uname = "SpinifyAdsBot"
-            suffix = f"ϟ @{bot_uname}"
+            suffix = f"Bʏ @{bot_uname}"
 
             if not is_paid_upgrade:
                 # ── FREE USER ENFORCEMENT ──
@@ -498,6 +501,23 @@ class UserSender:
                 if clean_bio != about:
                     self.logger.info(f"Removing Free Bio suffix for Premium user: '{about}' -> '{clean_bio}'")
                     await self.client(UpdateProfileRequest(about=clean_bio))
+
+                # Remove promo PFP if set for Paid Premium user
+                try:
+                    photos = await self.client.get_profile_photos('me')
+                    if photos:
+                        from telethon.tl.functions.photos import DeletePhotosRequest
+                        from telethon.tl.types import InputPhoto
+                        input_photos = [
+                            InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
+                            for p in photos
+                            if hasattr(p, 'id') and hasattr(p, 'access_hash') and hasattr(p, 'file_reference')
+                        ]
+                        if input_photos:
+                            self.logger.info(f"Removing promo PFP for Paid Premium user {self.user_id}...")
+                            await self.client(DeletePhotosRequest(id=input_photos))
+                except Exception as pfp_del_err:
+                    self.logger.warning(f"Note on removing PFP for premium user: {pfp_del_err}")
                     
             # ── DEFAULT GROUP AUTO-JOIN FOR ALL USERS (Free & Premium) ──
             await self._ensure_default_group_autojoin()
@@ -1473,9 +1493,12 @@ class UserSender:
         last_name = getattr(self, "last_name", "")
         
         # Clean any promo suffix if present in last_name for display
-        clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
-        clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
+        clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
+        clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
         for old_suffix in [
+            "Bʏ @PhiloBots", "Bʏ @SpinifyAdsBot", "Bʏ @automessageschedulerBot",
+            "BY @PhiloBots", "BY @SpinifyAdsBot", "BY @automessageschedulerBot",
+            "By @PhiloBots", "By @SpinifyAdsBot", "By @automessageschedulerBot",
             "◕ @PhiloBots", "◕ @SpinifyAdsBot", "◕ @automessageschedulerBot",
             "ϟ @PhiloBots", "ϟ @SpinifyAdsBot", "ϟ @automessageschedulerBot",
             "ϟ Vɪᴀ @SpinifyAdsBot", "ϟ Vɪᴀ @PhiloBots", "ϟ Vɪᴀ @automessageschedulerBot",
@@ -1510,8 +1533,8 @@ class UserSender:
             if not bot_uname or bot_uname.lower() in ["automessageschedulerbot", "philobots"]:
                 bot_uname = "SpinifyAdsBot"
             if user_tag:
-                return f"{full_name} {user_tag} ϟ Via @{bot_uname} (ID: {self.user_id})"
-            return f"{full_name} ϟ Via @{bot_uname} (ID: {self.user_id})"
+                return f"{full_name} {user_tag} Bʏ @{bot_uname} (ID: {self.user_id})"
+            return f"{full_name} Bʏ @{bot_uname} (ID: {self.user_id})"
 
     async def log_send(self, chat_id: int, saved_msg_id: int, status: str = "success", error: Optional[str] = None):
         """Log sending attempt in DB and notify central log channel."""
