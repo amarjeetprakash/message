@@ -313,14 +313,15 @@ class UserSender:
             first_name = me.first_name or ""
             last_name = me.last_name or ""
             
-            enforced_bio = "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ ʙʏ @SpinifyAdsBot"
+            enforced_bio = "Fʀᴇᴇ Aᴅs Bᴏᴛ Bʏ @SpinifyAdsBot • Pᴏᴡᴇʀᴇᴅ Bʏ @PhiloBots"
             old_bios = [
+                "Fʀᴇᴇ Aᴅs Bᴏᴛ Bʏ @SpinifyAdsBot • Pᴏᴡᴇʀᴇᴅ Bʏ @PhiloBots",
+                "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ ʙʏ @SpinifyAdsBot",
                 "ᴍade easy by @automessageschedulerBot",
                 "ᴍade easy by @PhiloBots",
                 "ᴍade easy by @SpinifyAdsBot",
                 "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ ʙʏ @automessageschedulerBot",
                 "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ ʙʏ @PhiloBots",
-                "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ ʙʏ @SpinifyAdsBot",
                 "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ @automessageschedulerBot",
                 "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ @PhiloBots",
                 "ғʀᴇᴇ ᴀᴅs ʙᴏᴛ @SpinifyAdsBot",

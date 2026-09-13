@@ -206,7 +206,7 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
   ➤ Send Mode: 🔄 Sequential only (Premium: rotate/random)
 
 📢 *FREE TIER REQUIREMENTS:*
-  1. Set your Telegram Bio to: `ғʀᴇᴇ ᴀᴅs ʙᴏᴛ ʙʏ @SpinifyAdsBot`.
+  1. Set your Telegram Bio to: `Fʀᴇᴇ Aᴅs Bᴏᴛ Bʏ @SpinifyAdsBot • Pᴏᴡᴇʀᴇᴅ Bʏ @PhiloBots`.
   2. Keep assigned promo profile picture (PFP).
   3. Must remain joined to official channel @SpinifyAdsBot and chat @spinifychat.
 
