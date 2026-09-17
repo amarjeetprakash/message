@@ -174,6 +174,7 @@ class UserSender:
         self.username = ""
         self.last_global_branding_check_at = None
         self.last_pause_warning_sent_at = None
+        self.ads_updated = False
     
     def calculate_health_score(self) -> int:
         """Calculate account health score from 0 (Critical) to 100 (Optimal)."""
@@ -867,6 +868,7 @@ class UserSender:
             try:
                 # 0. Fresh config + session activity
                 self.config_cache.clear()
+                self.ads_updated = False
                 self._cycle_start_time = datetime.utcnow()
                 self._cycle_id = int(self._cycle_start_time.timestamp())
                 self._sent_this_cycle.clear()
@@ -1081,6 +1083,11 @@ class UserSender:
                 for i, (msg, group) in enumerate(tasks):
                     if not self.running: break
                     
+                    if getattr(self, 'ads_updated', False):
+                        self.logger.info("📢 Ad update detected mid-cycle! Aborting current task queue to send updated ads immediately.")
+                        self.ads_updated = False
+                        break
+
                     # Night mode check every 10 tasks
                     if i % 10 == 0 and i > 0 and await is_night_mode():
                         self.logger.info("🌙 Night Mode detected mid-cycle. Pausing...")
@@ -1123,7 +1130,14 @@ class UserSender:
                         if elapsed < target_gap:
                             sleep_time = target_gap - elapsed
                             await self.update_status(f"{gap_type} ({int(sleep_time)}s)")
-                            await asyncio.sleep(sleep_time)
+                            try:
+                                await asyncio.wait_for(self.wake_up_event.wait(), timeout=sleep_time)
+                                if getattr(self, 'ads_updated', False):
+                                    self.logger.info("📢 Ad update detected during delay! Aborting cycle immediately to send updated ads.")
+                                    self.ads_updated = False
+                                    break
+                            except asyncio.TimeoutError:
+                                pass
 
                     self.logger.info(f"📤 [{i+1}/{len(tasks)}] → {chat_title}")
                     await self.update_status(f"Sending ({i+1}/{len(tasks)})")

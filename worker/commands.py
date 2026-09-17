@@ -2049,6 +2049,7 @@ async def handle_clearads(client: TelegramClient, user_id: int, message, sender=
 
         # Trigger wake up if sender is active to update status
         if sender:
+            sender.ads_updated = True
             sender.wake_up_event.set()
             await asyncio.sleep(0.1)
             sender.wake_up_event.clear()
@@ -2071,6 +2072,30 @@ async def handle_setads(client: TelegramClient, user_id: int, message, sender=No
 
     status_msg = await reply_to_command(client, message, "⏳ Setting new ad in Saved Messages...", auto_delete=False)
     try:
+        # First, clear existing ad messages from Saved Messages so old ads are not kept
+        msg_ids_to_delete = []
+        STATUS_PREFIXES = (".", "✅", "🗑️", "⏳", "❌", "⚠️", "📊", "🔴", "⚪", "●", "📋")
+        async for old_msg in client.iter_messages('me', limit=200):
+            if old_msg.id == message.id or old_msg.id == status_msg.id:
+                continue
+            if old_msg.text:
+                stripped = old_msg.text.strip()
+                if (stripped.startswith(STATUS_PREFIXES) or 
+                    "Free Version Paused" in stripped or 
+                    "remain joined" in stripped):
+                    continue
+            if hasattr(old_msg, 'action') and old_msg.action is not None:
+                continue
+            if not old_msg.text and not old_msg.media:
+                continue
+            msg_ids_to_delete.append(old_msg.id)
+
+        if msg_ids_to_delete:
+            try:
+                await client.delete_messages('me', msg_ids_to_delete)
+            except Exception as del_err:
+                logger.warning(f"[User {user_id}] Failed to clear old ads in handle_setads: {del_err}")
+
         if message.is_reply:
             reply_msg = await message.get_reply_message()
             if not reply_msg:
@@ -2106,10 +2131,11 @@ async def handle_setads(client: TelegramClient, user_id: int, message, sender=No
                 file=message.media
             )
             
-        await status_msg.edit("✅ **SUCCESS**\n\nThe new ad has been set in Saved Messages.")
+        await status_msg.edit("✅ **SUCCESS**\n\nThe new ad has been set in Saved Messages and old ads cleared.")
         
-        # Trigger wake up if sender is active
+        # Trigger immediate wake up & cycle abort so old ads in progress are aborted immediately
         if sender:
+            sender.ads_updated = True
             sender.wake_up_event.set()
             await asyncio.sleep(0.1)
             sender.wake_up_event.clear()
@@ -2205,6 +2231,13 @@ async def handle_remove_ad(client: TelegramClient, user_id: int, message, text: 
                 f"**Removed ID(s):** {removed_ids_str}"
             )
             await status_msg.edit(success_text)
+
+            # Trigger wake up if sender is active to update ad list immediately
+            if sender:
+                sender.ads_updated = True
+                sender.wake_up_event.set()
+                await asyncio.sleep(0.1)
+                sender.wake_up_event.clear()
         else:
             await status_msg.edit("⚠️ **Failed to remove ad(s).** The specified ID(s) could not be found or deleted from Saved Messages.")
 
