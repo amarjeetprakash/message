@@ -644,16 +644,22 @@ async def handle_addgroup(client: TelegramClient, user_id: int, message, text: s
             else:
                 failed.append((group_input, "Already exists or limit reached"))
                 
-        except (UsernameNotOccupiedError, UsernameInvalidError):
-            failed.append((group_input, "Not found"))
+        except (UsernameNotOccupiedError, UsernameInvalidError, ValueError):
+            failed.append((group_input, "Group not found / Private"))
         except (ChannelPrivateError, ChannelInvalidError):
-            failed.append((group_input, "Private/No access"))
+            failed.append((group_input, "Private / No access"))
         except (InviteHashInvalidError, InviteHashExpiredError):
-            failed.append((group_input, "Invalid invite"))
+            failed.append((group_input, "Invalid invite link"))
         except asyncio.TimeoutError:
             failed.append((group_input, "Timeout resolving group"))
         except Exception as e:
-            failed.append((group_input, str(e)[:20]))
+            err_msg = str(e).strip()
+            if "Plain text" in err_msg or "Connection" in err_msg:
+                failed.append((group_input, "Network / API error"))
+            elif "entity" in err_msg.lower() or "find" in err_msg.lower():
+                failed.append((group_input, "Group not found / Private"))
+            else:
+                failed.append((group_input, err_msg[:30] if err_msg else "Could not join"))
             
         # V6: Safe Bulk Joining Delay
         # If processing multiple groups, apply a safety gap to prevent hitting Telegram limits
