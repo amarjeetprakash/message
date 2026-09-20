@@ -57,7 +57,7 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
     
     premium_commands = {
         ".interval", ".shuffle", ".copymode", ".sendmode", ".responder",
-        ".folders", ".addfolder", ".nightmode", ".stats", ".health",
+        ".nightmode", ".stats", ".health",
         ".check", ".rmpaused", ".addplan"
     }
     
