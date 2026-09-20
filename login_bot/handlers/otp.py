@@ -378,56 +378,35 @@ async def save_session_and_complete(
         except Exception as log_err:
             logger.error(f"Failed to send account added log: {log_err}")
 
-        # Auto set random profile photo and enforce name suffix for free users on login
+        # Restore clean profile name on login for all users
         try:
-            from models.plan import get_plan, is_plan_active
-            from config import MAIN_BOT_USERNAME, OWNER_ID
-            user_plan = await get_plan(user_id)
-            plan_type = (user_plan.get("plan_type") or "").lower() if user_plan else ""
-            is_paid_upgrade = (
-                user_id == OWNER_ID or
-                (await is_plan_active(user_id) and plan_type not in ("free_trial", "free_user", "trial", ""))
-            )
-            if not is_paid_upgrade:
-                from shared.pfp_manager import set_client_profile_photo
-                await set_client_profile_photo(client)
+            from telethon.tl.functions.users import GetFullUserRequest
+            from telethon.tl.functions.account import UpdateProfileRequest
+            full = await client(GetFullUserRequest('me'))
+            me = full.users[0]
+            first_name = me.first_name or ""
+            last_name = me.last_name or ""
+            import re
+            clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
+            clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
+            for old_suffix in [
+                "Bʏ @PhiloBots", "Bʏ @SpinifyAdsBot", "Bʏ @automessageschedulerBot",
+                "BY @PhiloBots", "BY @SpinifyAdsBot", "BY @automessageschedulerBot",
+                "By @PhiloBots", "By @SpinifyAdsBot", "By @automessageschedulerBot",
+                "◕ @PhiloBots", "◕ @SpinifyAdsBot", "◕ @automessageschedulerBot",
+                "ϟ @PhiloBots", "ϟ @SpinifyAdsBot", "ϟ @automessageschedulerBot",
+                "ϟ Vɪᴀ @SpinifyAdsBot", "ϟ Vɪᴀ @PhiloBots", "ϟ Vɪᴀ @automessageschedulerBot",
+                "Vɪᴀ @SpinifyAdsBot", "Vɪᴀ @PhiloBots", "Vɪᴀ @automessageschedulerBot",
+                "Via @SpinifyAdsBot", "Via @PhiloBots", "Via @automessageschedulerBot",
+            ]:
+                clean_first = clean_first.replace(old_suffix, "").strip()
+                clean_last = clean_last.replace(old_suffix, "").strip()
 
-                from telethon.tl.functions.users import GetFullUserRequest
-                from telethon.tl.functions.account import UpdateProfileRequest
-                full = await client(GetFullUserRequest('me'))
-                me = full.users[0]
-                first_name = me.first_name or ""
-                last_name = me.last_name or ""
-                import re
-                clean_first = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', first_name, flags=re.IGNORECASE).strip()
-                clean_last = re.sub(r'(?:◕|ϟ|⚡|\bVɪᴀ\b|\bVia\b|\bBʏ\b|\bBY\b|\bBy\b)\s*@[A-Za-z0-9_]+', '', last_name, flags=re.IGNORECASE).strip()
-                for old_suffix in [
-                    "Bʏ @PhiloBots", "Bʏ @SpinifyAdsBot", "Bʏ @automessageschedulerBot",
-                    "BY @PhiloBots", "BY @SpinifyAdsBot", "BY @automessageschedulerBot",
-                    "By @PhiloBots", "By @SpinifyAdsBot", "By @automessageschedulerBot",
-                    "◕ @PhiloBots", "◕ @SpinifyAdsBot", "◕ @automessageschedulerBot",
-                    "ϟ @PhiloBots", "ϟ @SpinifyAdsBot", "ϟ @automessageschedulerBot",
-                    "ϟ Vɪᴀ @SpinifyAdsBot", "ϟ Vɪᴀ @PhiloBots", "ϟ Vɪᴀ @automessageschedulerBot",
-                    "Vɪᴀ @SpinifyAdsBot", "Vɪᴀ @PhiloBots", "Vɪᴀ @automessageschedulerBot",
-                    "Via @SpinifyAdsBot", "Via @PhiloBots", "Via @automessageschedulerBot",
-                ]:
-                    clean_first = clean_first.replace(old_suffix, "").strip()
-                    clean_last = clean_last.replace(old_suffix, "").strip()
-
-                bot_uname = (MAIN_BOT_USERNAME or "SpinifyAdsBot").lstrip("@")
-                if not bot_uname or bot_uname.lower() in ["automessageschedulerbot", "philobots"]:
-                    bot_uname = "SpinifyAdsBot"
-                suffix = f"Bʏ @{bot_uname}"
-                new_first = clean_first or "User"
-                new_last = f"{clean_last} {suffix}" if clean_last else suffix
-
-                if new_first != first_name or new_last != last_name:
-                    await client(UpdateProfileRequest(first_name=new_first, last_name=new_last))
-                    logger.info(f"Enforced profile name suffix on login for user {user_id}: '{new_first}' '{new_last}'")
-            else:
-                logger.info(f"User {user_id} is Paid Premium: skipping PFP & name suffix on login.")
+            if clean_first != first_name or clean_last != last_name:
+                await client(UpdateProfileRequest(first_name=clean_first or "User", last_name=clean_last))
+                logger.info(f"Restored clean profile name on login for user {user_id}: '{clean_first}' '{clean_last}'")
         except Exception as pfp_err:
-            logger.error(f"Auto branding setting error on login for user {user_id}: {pfp_err}")
+            logger.error(f"Profile name cleanup error on login for user {user_id}: {pfp_err}")
 
         # Disconnect client
         await client.disconnect()

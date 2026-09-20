@@ -349,177 +349,20 @@ class UserSender:
                 bot_uname = "SpinifyAdsBot"
             suffix = f"Bʏ @{bot_uname}"
 
-            if not is_paid_upgrade:
-                # ── FREE USER ENFORCEMENT ──
-                # 1. Enforce name suffix for free users
-                new_first = clean_first or "User"
-                if clean_last:
-                    new_last = f"{clean_last} {suffix}"
-                else:
-                    new_last = suffix
+            # Clean profile name and bio for ALL users (restoring original clean name & bio)
+            if clean_first != first_name or clean_last != last_name:
+                self.logger.info(f"Restoring clean profile name for user {self.user_id}: '{clean_first}' '{clean_last}'")
+                await self.client(UpdateProfileRequest(first_name=clean_first or "User", last_name=clean_last))
 
-                if new_first != first_name or new_last != last_name:
-                    self.logger.info(f"Enforcing Free Profile Name Suffix: '{new_first}' '{new_last}'")
-                    await self.client(UpdateProfileRequest(first_name=new_first, last_name=new_last))
-
-                # 2. Enforce free bio
-                if enforced_bio not in about:
-                    # Clean the bio first to remove any old/other enforced bios
-                    clean_bio = about
-                    for ob in old_bios:
-                        clean_bio = clean_bio.replace(ob, "").strip()
-                    clean_bio = clean_bio.strip(" | -•")
-                    
-                    if clean_bio:
-                        # Limit clean_bio length so the combined string fits within 70 characters
-                        max_len = 70 - len(f" | {enforced_bio}")
-                        if len(clean_bio) > max_len:
-                            clean_bio = clean_bio[:max_len].strip(" | -•")
-                        new_bio = f"{clean_bio} | {enforced_bio}"
-                    else:
-                        new_bio = enforced_bio
-                        
-                    if about != new_bio:
-                        self.logger.info(f"Enforcing Free Bio: '{new_bio}'")
-                        await self.client(UpdateProfileRequest(about=new_bio))
+            clean_bio = about
+            for ob in old_bios:
+                clean_bio = clean_bio.replace(ob, "").strip()
+            clean_bio = clean_bio.strip(" | -•")
+            
+            if clean_bio != about:
+                self.logger.info(f"Restoring clean profile bio for user {self.user_id}: '{clean_bio}'")
+                await self.client(UpdateProfileRequest(about=clean_bio))
                 
-                # 2. Enforce PFP assignment for free users (if user has no profile photo)
-                try:
-                    photos = await self.client.get_profile_photos('me', limit=1)
-                    if not photos:
-                        self.logger.info("Free user has no profile photo, setting promo PFP from pool...")
-                        from shared.pfp_manager import set_client_profile_photo
-                        await set_client_profile_photo(self.client)
-                except Exception as pfp_err:
-                    self.logger.warning(f"Error checking/setting PFP for free user: {pfp_err}")
-                    
-                # 3. Enforce channel and chat join
-                from core.config import CHANNEL_USERNAME
-                required_channels = []
-                if CHANNEL_USERNAME:
-                    required_channels.append(CHANNEL_USERNAME.lstrip('@'))
-                required_channels.append("spinifychat")
-                
-                joined_channels = set()
-                try:
-                    # Check if already joined by checking dialogs (prevents redundant join requests)
-                    async for dialog in self.client.iter_dialogs(limit=100):
-                        username = getattr(dialog.entity, 'username', '')
-                        if username:
-                            username_lower = username.lower()
-                            for req in required_channels:
-                                if username_lower == req.lower():
-                                    joined_channels.add(req.lower())
-                except Exception as dialog_err:
-                    self.logger.warning(f"Error checking dialogs: {dialog_err}")
-                
-                # Double-check membership for channels not found in the top 100 dialogs
-                from telethon.errors import UserNotParticipantError
-                from telethon.tl.types import Channel
-                for req in required_channels:
-                    if req.lower() not in joined_channels:
-                        try:
-                            # 1. Fetch the entity
-                            entity = await self.client.get_entity(req)
-                            
-                            # For User/Bot entities, they cannot be joined like channels, so we count them as joined
-                            from telethon.tl.types import User
-                            if isinstance(entity, User):
-                                joined_channels.add(req.lower())
-                                self.logger.info(f"Verified @{req} is a User/Bot (bypassing channel join check).")
-                                continue
-
-                            # 2. For channels/supergroups, check the left flag directly (regular members cannot call get_permissions)
-                            if isinstance(entity, Channel):
-                                if not entity.left:
-                                    joined_channels.add(req.lower())
-                                    self.logger.info(f"Verified membership in channel @{req} via entity.left check.")
-                                    continue
-                                else:
-                                    self.logger.info(f"User is not a participant in channel @{req} (entity.left is True)")
-                                    continue
-                                    
-                            # 3. For small groups or fallback
-                            await self.client.get_permissions(entity, 'me')
-                            joined_channels.add(req.lower())
-                            self.logger.info(f"Verified membership in @{req} via get_permissions.")
-                        except UserNotParticipantError:
-                            self.logger.info(f"User is not a participant in @{req}")
-                        except Exception as e:
-                            # For other exceptions (e.g. rate limits or connection errors),
-                            # we log it but don't pause the user to prevent false positives.
-                            self.logger.warning(f"Could not verify membership in @{req} via get_permissions/entity check: {e}")
-                            joined_channels.add(req.lower())
-                            
-                missing_channels = [req for req in required_channels if req.lower() not in joined_channels]
-                if missing_channels:
-                    missing_mentions = ", ".join([f"@{m}" for m in missing_channels])
-                    self.logger.warning(f"Free user is missing channels: {missing_mentions}! Pausing scheduler.")
-                    from models.group import pause_user_groups
-                    await pause_user_groups(self.user_id)
-                    
-                    # Throttle warning messages to once every 10 minutes to prevent spamming in background task
-                    now = datetime.utcnow()
-                    last_sent = getattr(self, "last_pause_warning_sent_at", None)
-                    if not last_sent or (now - last_sent) > timedelta(minutes=10):
-                        self.last_pause_warning_sent_at = now
-                        try:
-                            from worker.utils import send_direct_user_message
-                            await send_direct_user_message(
-                                self.user_id,
-                                f"⚠️ <b>Free Version Paused</b>\n\n"
-                                f"You must remain joined to {missing_mentions} to use the free version of this bot.\n\n"
-                                f"All your groups have been paused. Please join {missing_mentions} and then send <code>.start</code> in Saved Messages to resume."
-                            )
-                            self.logger.info(f"Sent channel membership reminder to user direct chat.")
-                        except Exception as msg_err:
-                            self.logger.warning(f"Failed to send channel membership reminder via main bot: {msg_err}. Falling back to Saved Messages.")
-                            try:
-                                await self.client.send_message(
-                                    'me',
-                                    f"⚠️ **Free Version Paused**\n\n"
-                                    f"You must remain joined to {missing_mentions} to use the free version of this bot.\n\n"
-                                    f"All your groups have been paused. Please join {missing_mentions} and then send `.start` in Saved Messages to resume."
-                                )
-                            except Exception as fallback_err:
-                                self.logger.error(f"Fallback to Saved Messages also failed: {fallback_err}")
-                        
-                    await self.update_status(f"Join {missing_mentions}")
-                    return False
-                        
-            else:
-                # ── PREMIUM USER CLEANUP ──
-                # Premium users: NO name suffix, NO promo bio, NO auto-assigned PFP
-                if clean_first != first_name or clean_last != last_name:
-                    self.logger.info(f"Removing Free Name suffix for Paid Premium user: '{clean_first}' '{clean_last}'")
-                    await self.client(UpdateProfileRequest(first_name=clean_first or "User", last_name=clean_last))
-
-                clean_bio = about
-                for ob in old_bios:
-                    clean_bio = clean_bio.replace(ob, "").strip()
-                clean_bio = clean_bio.strip(" | -•")
-                
-                if clean_bio != about:
-                    self.logger.info(f"Removing Free Bio suffix for Premium user: '{about}' -> '{clean_bio}'")
-                    await self.client(UpdateProfileRequest(about=clean_bio))
-
-                # Remove promo PFP if set for Paid Premium user
-                try:
-                    photos = await self.client.get_profile_photos('me')
-                    if photos:
-                        from telethon.tl.functions.photos import DeletePhotosRequest
-                        from telethon.tl.types import InputPhoto
-                        input_photos = [
-                            InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
-                            for p in photos
-                            if hasattr(p, 'id') and hasattr(p, 'access_hash') and hasattr(p, 'file_reference')
-                        ]
-                        if input_photos:
-                            self.logger.info(f"Removing promo PFP for Paid Premium user {self.user_id}...")
-                            await self.client(DeletePhotosRequest(id=input_photos))
-                except Exception as pfp_del_err:
-                    self.logger.warning(f"Note on removing PFP for premium user: {pfp_del_err}")
-                    
             # ── DEFAULT GROUP AUTO-JOIN FOR ALL USERS (Free & Premium) ──
             await self._ensure_default_group_autojoin()
 
