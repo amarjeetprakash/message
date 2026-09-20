@@ -862,10 +862,43 @@ class UserSender:
             
             # 5. Prevent spamming (reply once every 4 hours per user)
             now = datetime.utcnow().timestamp()
+            
+            # A. In-memory fast check
             last_reply = self.responder_cache.get(sender_id, 0)
             if now - last_reply < 14400:  # 4 hours (14,400 seconds)
                 return
+
+            # B. Database persistent check (persists across worker restarts)
+            try:
+                from db.database import get_database
+                db = get_database()
+                cutoff = datetime.utcnow() - timedelta(hours=4)
+                db_log = await db.auto_reply_logs.find_one({
+                    "account_user_id": self.user_id,
+                    "target_sender_id": sender_id,
+                    "replied_at": {"$gte": cutoff}
+                })
+                if db_log:
+                    self.responder_cache[sender_id] = db_log["replied_at"].timestamp()
+                    return
+            except Exception as db_err:
+                self.logger.warning(f"Note on auto-reply DB check: {db_err}")
+
+            # LOCK IMMEDIATELY in-memory cache to prevent race condition from rapid incoming messages!
+            self.responder_cache[sender_id] = now
             
+            # Persist cooldown to DB
+            try:
+                from db.database import get_database
+                db = get_database()
+                await db.auto_reply_logs.update_one(
+                    {"account_user_id": self.user_id, "target_sender_id": sender_id},
+                    {"$set": {"replied_at": datetime.utcnow()}},
+                    upsert=True
+                )
+            except Exception:
+                pass
+
             # Cache cleanup if cache size grows large
             if len(self.responder_cache) > 5000:
                 self.responder_cache = {k: v for k, v in self.responder_cache.items() if now - v < 14400}
@@ -878,9 +911,6 @@ class UserSender:
 
             self.logger.info(f"Sending auto-reply to {sender_id}")
             await event.reply(reply_text)
-            
-            # Update cache
-            self.responder_cache[sender_id] = now
             
         except Exception as e:
             self.logger.error(f"Auto-reply error: {e}")
