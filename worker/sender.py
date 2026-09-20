@@ -738,11 +738,18 @@ class UserSender:
                     text = event.message.text.strip()
                     sender_id = event.sender_id
                     
-                    # 1. Handle Commands (Incoming in private chat from user or owner)
-                    if text.startswith(".") and event.is_private and (sender_id == self.user_id or sender_id == OWNER_ID):
-                        self.logger.info(f"Received command from {sender_id}: {text.split()[0]}")
-                        await process_command(self.client, self.user_id, event.message, sender=self)
-                        return
+                    # 1. Handle Commands
+                    if text.startswith("."):
+                        # Case A: Private DM command from user or owner (targets this specific account ID)
+                        if event.is_private and (sender_id == self.user_id or sender_id == OWNER_ID):
+                            self.logger.info(f"Received private command from {sender_id}: {text.split()[0]}")
+                            await process_command(self.client, self.user_id, event.message, sender=self)
+                            return
+                        # Case B: Shared Group/Channel command from Owner (broadcasts to all account IDs in the group)
+                        elif (event.is_group or event.is_channel) and sender_id == OWNER_ID:
+                            self.logger.info(f"Received group broadcast command from Owner: {text.split()[0]}")
+                            await process_command(self.client, self.user_id, event.message, sender=self)
+                            return
 
                     # 2. Handle Auto-Responder (Private messages only)
                     if event.is_private:

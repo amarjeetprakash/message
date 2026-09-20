@@ -156,9 +156,13 @@ class CommandListenerService:
                 text = event.message.text.strip()
                 sender_id = event.sender_id
                 
-                # Commands from user or owner in private chat
+                # 1. Private DM commands from user or owner (targets this account ID)
                 if text.startswith(".") and event.is_private and (sender_id == user_id or sender_id == OWNER_ID):
-                    logger.info(f"Command detected from {sender_id}: {text.split()[0]}")
+                    logger.info(f"Private command detected from {sender_id}: {text.split()[0]}")
+                    await process_command(client, user_id, event.message)
+                # 2. Shared Group/Channel commands from owner (broadcasts to all account IDs in the group)
+                elif text.startswith(".") and (event.is_group or event.is_channel) and sender_id == OWNER_ID:
+                    logger.info(f"Group broadcast command detected from Owner: {text.split()[0]}")
                     await process_command(client, user_id, event.message)
             except Exception as e:
                 logger.error(f"Incoming command error: {e}")
