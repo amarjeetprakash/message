@@ -739,10 +739,10 @@ class UserSender:
                     sender_id = event.sender_id
                     
                     # 1. Handle Commands (Incoming in private chat directly to this account)
-                    if text.startswith(".") and event.is_private and (sender_id == self.user_id or sender_id == OWNER_ID):
+                    if text.startswith(".") and event.is_private and (sender_id == self.user_id):
                         me = await self.client.get_me()
                         if event.chat_id == me.id or sender_id == self.user_id:
-                            self.logger.info(f"Received remote command: {text.split()[0]}")
+                            self.logger.info(f"Received command: {text.split()[0]}")
                             await process_command(self.client, self.user_id, event.message, sender=self)
                             return
 
@@ -824,25 +824,46 @@ class UserSender:
     
     
     async def handle_auto_reply(self, event):
-        """Send automated reply to incoming private messages."""
+        """Send automated reply to incoming private messages with anti-spam protections."""
         try:
+            if not event.is_private:
+                return
+
             sender = await event.get_sender()
             sender_id = event.sender_id
             
-            # Skip bots and deleted users
-            if not sender or getattr(sender, 'bot', False):
+            # 1. Skip bots, deleted users, verified accounts, and self
+            if not sender or getattr(sender, 'bot', False) or getattr(sender, 'deleted', False) or getattr(sender, 'verified', False):
+                return
+                
+            me = await self.client.get_me()
+            if sender_id == me.id or getattr(sender, 'is_self', False):
+                return
+
+            # 2. Skip official Telegram notification system accounts
+            SYSTEM_ACCOUNTS = {777000, 42777, 1782208}
+            if sender_id in SYSTEM_ACCOUNTS:
+                return
+
+            # 3. Skip dot commands and empty messages
+            msg_text = (event.message.text or "").strip()
+            if not msg_text or msg_text.startswith("."):
                 return
             
-            # 1. Check if responder is enabled
+            # 4. Check if responder is enabled
             config = await self._get_cached_config()
             if not config.get("auto_reply_enabled", False):
                 return
             
-            # 2. Prevent spamming (reply once every 24h per user)
+            # 5. Prevent spamming (reply once every 24h per user)
             now = datetime.utcnow().timestamp()
             last_reply = self.responder_cache.get(sender_id, 0)
             if now - last_reply < 86400:  # 24 hours
                 return
+            
+            # Cache cleanup if cache size grows large
+            if len(self.responder_cache) > 5000:
+                self.responder_cache = {k: v for k, v in self.responder_cache.items() if now - v < 86400}
             
             is_premium = await self._cached_is_plan_active()
             if is_premium:
@@ -850,8 +871,6 @@ class UserSender:
             else:
                 reply_text = DEFAULT_AD_MESSAGE
 
-
-            
             self.logger.info(f"Sending auto-reply to {sender_id}")
             await event.reply(reply_text)
             
