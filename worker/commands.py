@@ -238,12 +238,13 @@ async def handle_help(client: TelegramClient, user_id: int, message):
 async def handle_status(client: TelegramClient, user_id: int, message, text: str = ""):
     """Handle .status command with detailed information for THIS or ANOTHER account."""
     from core.config import OWNER_ID
+    issuer_id = getattr(message, "sender_id", user_id)
     
     target_user_id = user_id
     parts = text.split()
     
     # Owner can check other users: .status <user_id>
-    if len(parts) > 1 and user_id == OWNER_ID:
+    if len(parts) > 1 and (user_id == OWNER_ID or issuer_id == OWNER_ID):
         try:
             target_user_id = int(parts[1])
         except ValueError:
@@ -1094,7 +1095,8 @@ async def handle_responder(client: TelegramClient, user_id: int, message, text: 
 async def handle_userstatus(client: TelegramClient, user_id: int, message, text: str):
     """Owner command: .userstatus <user_id>"""
     from core.config import OWNER_ID
-    if user_id != OWNER_ID:
+    issuer_id = getattr(message, "sender_id", user_id)
+    if issuer_id != OWNER_ID:
         await reply_to_command(client, message, "❌ Reserved for owner.")
         return
         
@@ -1386,7 +1388,8 @@ def parse_group_input(input_str: str) -> tuple[Optional[str], Optional[int]]:
 async def handle_nightmode(client: TelegramClient, user_id: int, message, text: str):
     """Handle .nightmode on/off/auto command (Owner only)."""
     from core.config import OWNER_ID
-    if user_id != OWNER_ID:
+    issuer_id = getattr(message, "sender_id", user_id)
+    if issuer_id != OWNER_ID:
         await reply_to_command(client, message, "❌ This command is restricted to the BOT OWNER.")
         return
         
@@ -2632,7 +2635,8 @@ async def handle_setallpfp(client: TelegramClient, user_id: int, message):
     Triggers setting random profile pictures for all connected sessions across the system.
     """
     from core.config import OWNER_ID
-    if user_id != OWNER_ID:
+    issuer_id = getattr(message, "sender_id", user_id)
+    if issuer_id != OWNER_ID:
         await reply_to_command(client, message, "⛔ **Access Denied**\nThis command is restricted to the Bot Owner.")
         return
         
