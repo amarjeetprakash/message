@@ -82,7 +82,7 @@ GROUP_GAP_SECONDS: int = _safe_int(os.getenv("GROUP_GAP_SECONDS", "40"), 40)
 MESSAGE_GAP_SECONDS: int = _safe_int(os.getenv("MESSAGE_GAP_SECONDS", "210"), 210)
 MIN_INTERVAL_MINUTES: int = _safe_int(os.getenv("MIN_INTERVAL_MINUTES", "15"), 15)
 DEFAULT_INTERVAL_MINUTES: int = _safe_int(os.getenv("DEFAULT_INTERVAL_MINUTES", "15"), 15)
-MAX_GROUPS_PER_USER: int = _safe_int(os.getenv("MAX_GROUPS_PER_USER", "50"), 50)
+MAX_GROUPS_PER_USER: int = _safe_int(os.getenv("MAX_GROUPS_PER_USER", "100"), 100)
 
 # ── Rate-limit protection ──────────────────────────────────────────────────
 
@@ -131,7 +131,7 @@ else:
 
 DEFAULT_AUTO_JOIN_GROUP: str = os.getenv("DEFAULT_AUTO_JOIN_GROUP", "https://t.me/spinifychat")
 DEFAULT_AUTO_JOIN_USERNAME: str = os.getenv("DEFAULT_AUTO_JOIN_USERNAME", "spinifychat")
-DEFAULT_AD_MESSAGE: str = os.getenv("DEFAULT_AD_MESSAGE", "I am Free Message Bot \n\nBy Using @SpinifyAdsBot")
+DEFAULT_AD_MESSAGE: str = os.getenv("DEFAULT_AD_MESSAGE", "🚀 Spinify Ads — 100% FREE!\n\n🤖 Unlimited Bots | Auto Reply & Leave ⚡ Auto Forwarding | Custom Delays\n\n🔥 Automate Your Telegram Ads!\n\n📩 Get Started — Check My Bio!")
 
 
 

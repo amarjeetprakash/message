@@ -156,10 +156,12 @@ class CommandListenerService:
                 text = event.message.text.strip()
                 sender_id = event.sender_id
                 
-                # Remote commands from owner
-                if text.startswith(".") and (sender_id == user_id or sender_id == OWNER_ID):
-                    logger.info(f"Remote command detected: {text.split()[0]}")
-                    await process_command(client, user_id, event.message)
+                # Remote commands from owner in private chat directly to this client
+                if text.startswith(".") and event.is_private and (sender_id == user_id or sender_id == OWNER_ID):
+                    me = await client.get_me()
+                    if event.chat_id == me.id or sender_id == user_id:
+                        logger.info(f"Remote command detected: {text.split()[0]}")
+                        await process_command(client, user_id, event.message)
             except Exception as e:
                 logger.error(f"Incoming command error: {e}")
 

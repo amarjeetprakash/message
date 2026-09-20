@@ -21,8 +21,12 @@ async def add_group(
     db = get_database()
     now = datetime.utcnow()
 
+    query = {"user_id": user_id, "chat_id": chat_id}
+    if account_phone:
+        query["account_phone"] = account_phone
+
     result = await db.groups.find_one_and_update(
-        {"user_id": user_id, "chat_id": chat_id},
+        query,
         {
             "$set": {
                 "chat_title": chat_title,
@@ -116,10 +120,13 @@ async def toggle_group(
     )
 
 
-async def get_group_count(user_id: int) -> int:
-    """Get count of user's groups."""
+async def get_group_count(user_id: int, phone: str = None) -> int:
+    """Get count of user's groups (optionally filtered by account phone)."""
     db = get_database()
-    return await db.groups.count_documents({"user_id": user_id})
+    query = {"user_id": user_id}
+    if phone:
+        query["account_phone"] = phone
+    return await db.groups.count_documents(query)
 
 
 # Failure reasons that indicate the GROUP itself is dead/inaccessible

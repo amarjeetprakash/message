@@ -10,7 +10,8 @@ from core.database import get_database
 from models.plan import is_plan_active
 from models.user import update_user_config
 
-DEFAULT_RESPONDER_TEXT = "I am Free Message Bot \n\nBy Using @SpinifyAdsBot"
+from core.config import DEFAULT_AD_MESSAGE
+DEFAULT_RESPONDER_TEXT = DEFAULT_AD_MESSAGE
 
 async def main():
     db = get_database()

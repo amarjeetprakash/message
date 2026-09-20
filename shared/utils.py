@@ -107,3 +107,14 @@ def get_telegram_client_kwargs() -> dict:
         kwargs["connection"] = connection.ConnectionTcpMTProxyRandomizedIntermediate
     return kwargs
 
+def make_progress_bar(current: int, total: int, length: int = 10) -> str:
+    """Generate a clean visual ASCII progress bar: [████████░░] 80%"""
+    if total <= 0:
+        return f"[{'░' * length}] 0%"
+    ratio = max(0.0, min(1.0, float(current) / float(total)))
+    percent = int(ratio * 100)
+    filled = int(round(length * ratio))
+    filled = max(0, min(length, filled))
+    bar = '█' * filled + '░' * (length - filled)
+    return f"[{bar}] {percent}%"
+

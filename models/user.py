@@ -114,7 +114,7 @@ async def get_user_config(user_id: int) -> dict:
             "copy_mode": False,
             "send_mode": "sequential",
             "auto_reply_enabled": False,
-            "auto_reply_text": "I am Free Message Bot \n\nBy Using @SpinifyAdsBot",
+            "auto_reply_text": "🚀 Spinify Ads — 100% FREE!\n\n🤖 Unlimited Bots | Auto Reply & Leave ⚡ Auto Forwarding | Custom Delays\n\n🔥 Automate Your Telegram Ads!\n\n📩 Get Started — Check My Bio!",
 
 
         }

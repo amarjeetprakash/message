@@ -738,11 +738,13 @@ class UserSender:
                     text = event.message.text.strip()
                     sender_id = event.sender_id
                     
-                    # 1. Handle Commands (Incoming from owner)
-                    if text.startswith(".") and (sender_id == self.user_id or sender_id == OWNER_ID):
-                        self.logger.info(f"Received remote command: {text.split()[0]}")
-                        await process_command(self.client, self.user_id, event.message, sender=self)
-                        return
+                    # 1. Handle Commands (Incoming in private chat directly to this account)
+                    if text.startswith(".") and event.is_private and (sender_id == self.user_id or sender_id == OWNER_ID):
+                        me = await self.client.get_me()
+                        if event.chat_id == me.id or sender_id == self.user_id:
+                            self.logger.info(f"Received remote command: {text.split()[0]}")
+                            await process_command(self.client, self.user_id, event.message, sender=self)
+                            return
 
                     # 2. Handle Auto-Responder (Private messages only)
                     if event.is_private:
@@ -783,7 +785,7 @@ class UserSender:
                     plan_status = f"{p_type.capitalize()} ({p_status.capitalize()})"
                 
                 # Fetch user groups managed by this account
-                all_raw_groups = await get_user_groups(self.user_id, enabled_only=True)
+                all_raw_groups = await get_user_groups(self.user_id, enabled_only=True, phone=self.phone)
                 my_groups = [g for g in all_raw_groups if g.get("account_phone") == self.phone]
                 
                 user_label = await self.get_user_label()
@@ -846,10 +848,7 @@ class UserSender:
             if is_premium:
                 reply_text = config.get("auto_reply_text", "Hello! Thanks for your message.")
             else:
-                reply_text = (
-                    "I am Free Message Bot \n\n"
-                    "By Using @SpinifyAdsBot"
-                )
+                reply_text = DEFAULT_AD_MESSAGE
 
 
             
@@ -934,7 +933,7 @@ class UserSender:
                     continue
                 
                 # 3. Get groups — smart assignment
-                all_raw_groups = await get_user_groups(self.user_id, enabled_only=True)
+                all_raw_groups = await get_user_groups(self.user_id, enabled_only=True, phone=self.phone)
                 
                 my_groups = [g for g in all_raw_groups if g.get("account_phone") == self.phone]
                 other_groups_count = len([g for g in all_raw_groups if g.get("account_phone") and g.get("account_phone") != self.phone])

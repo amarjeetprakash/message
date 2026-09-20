@@ -99,7 +99,7 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
         elif cmd in (".remove", ".rmad"):
             await handle_remove_ad(client, user_id, message, text, sender)
             return True
-        elif cmd == ".join":
+        elif cmd in (".join", ".joinfolder", ".addlist"):
             await handle_join(client, user_id, message, text)
             return True
         elif cmd == ".show":
@@ -301,6 +301,10 @@ async def handle_status(client: TelegramClient, user_id: int, message, text: str
     
     header = "📊 *WORKER DIAGNOSTICS*" if target_user_id == user_id else f"📊 *USER PROFILE: {target_user_id}*"
     
+    from shared.utils import make_progress_bar
+    from core.config import MAX_GROUPS_PER_USER
+    groups_bar = make_progress_bar(enabled_groups, total_groups if total_groups > 0 else MAX_GROUPS_PER_USER)
+
     text = f"""{header}
     
 📱 *ACCOUNT PROFILE*
@@ -320,6 +324,7 @@ async def handle_status(client: TelegramClient, user_id: int, message, text: str
 └ Night Mode: {await get_night_mode_label()}
 
 👥 *GROUPS ({enabled_groups}/{total_groups})*
+├ Progress: `{groups_bar}`
 └ 📢 Potential Reach: {total_reach:,} members
 
 Type `.help` for available commands
@@ -346,17 +351,23 @@ async def handle_stats(client: TelegramClient, user_id: int, message):
     elif today_sent > 0: activity = "🟢 STABLE"
     else: activity = "⚪ IDLE"
     
-    text = f"📈 *SENDER ACTIVITY: {phone}*\n"
+    from shared.utils import make_progress_bar
+    today_bar = make_progress_bar(today_success, today_sent) if today_sent > 0 else make_progress_bar(0, 100)
+    overall_bar = make_progress_bar(int(overall_rate), 100)
+
+    text = f"📈 *SENDER ACTIVITY: `{phone}`*\n"
     text += f"══════════════════════════\n\n"
     
     text += f"📊 *TODAY'S METRICS*\n"
     text += f"├ Activity: {activity}\n"
+    text += f"├ Progress: `{today_bar}`\n"
     text += f"├ Transmitted: {today_sent} ads\n"
     text += f"├ Successful: {today_success}\n"
     text += f"└ Success Rate: {today_rate}%\n\n"
     
     text += f"🏆 *OVERALL HEALTH*\n"
     text += f"├ Lifetime Transmissions: {total_sent}\n"
+    text += f"├ Health Progress: `{overall_bar}`\n"
     text += f"└ Overall Delivery Rate: {overall_rate}%\n\n"
     
     if recent_fails:
@@ -376,7 +387,7 @@ async def handle_stats(client: TelegramClient, user_id: int, message):
 async def handle_groups(client: TelegramClient, user_id: int, message):
     """Handle .groups command - list groups with stylized output."""
     phone = getattr(client, 'phone', None)
-    groups = await get_user_groups(user_id)
+    groups = await get_user_groups(user_id, phone=phone)
     
     if not groups:
         await reply_to_command(client, message, 
@@ -446,7 +457,8 @@ async def handle_addgroup(client: TelegramClient, user_id: int, message, text: s
     from core.config import MAX_GROUPS_PER_USER
     limit = MAX_GROUPS_PER_USER
     
-    count = await get_group_count(user_id)
+    phone = getattr(client, 'phone', None)
+    count = await get_group_count(user_id, phone=phone)
     available_slots = limit - count
     
     if available_slots <= 0:
@@ -580,11 +592,29 @@ async def handle_addgroup(client: TelegramClient, user_id: int, message, text: s
                     failed.append((group_input, "Timeout resolving group"))
                     continue
 
-            # Reject broadcast channels
-            from telethon.tl.types import Channel
-            if isinstance(entity, Channel) and getattr(entity, 'broadcast', False):
-                failed.append((group_input, "Target is a channel, not a group"))
-                continue
+            # Ensure user is a participant / member of the group
+            from telethon.tl.functions.channels import JoinChannelRequest
+            from telethon.errors import UserAlreadyParticipantError, UserBannedInChannelError, ChannelPrivateError, InviteRequestSentError
+            if isinstance(entity, Channel):
+                try:
+                    await asyncio.wait_for(client(JoinChannelRequest(entity)), timeout=10.0)
+                except UserAlreadyParticipantError:
+                    pass
+                except (UserBannedInChannelError, ChannelPrivateError, InviteRequestSentError):
+                    failed.append((group_input, "Not a member / Could not join"))
+                    continue
+                except Exception as join_err:
+                    is_joined = False
+                    try:
+                        async for dialog in client.iter_dialogs(limit=100):
+                            if dialog.id == utils.get_peer_id(entity):
+                                is_joined = True
+                                break
+                    except Exception:
+                        pass
+                    if not is_joined:
+                        failed.append((group_input, "Not a member / Could not join"))
+                        continue
 
             chat_id = utils.get_peer_id(entity)
             chat_title = getattr(entity, 'title', None) or getattr(entity, 'username', str(chat_id))
@@ -705,8 +735,8 @@ async def handle_rmgroup(client: TelegramClient, user_id: int, message, text: st
     
     inputs = parts[1:]
     
-    # Get user's groups (ALL groups to match numbering in .groups)
-    groups = await get_user_groups(user_id)
+    phone = getattr(client, 'phone', None)
+    groups = await get_user_groups(user_id, phone=phone)
     
     if not groups:
         await reply_to_command(client, message, "○ You have no groups in your list.")
@@ -818,37 +848,51 @@ async def handle_clear(client: TelegramClient, user_id: int, message):
         await reply_to_command(client, message, "⚪ Your group list is already empty.", auto_delete=False)
 
 async def handle_logs(client: TelegramClient, user_id: int, message):
-    """Handle .logs command to show recent activity for this account."""
-    phone = getattr(client, 'phone', 'Unknown')
-    from db.models import get_recent_failed_logs
+    """Handle .logs command to show recent activity and progress bar for each account ID."""
+    from shared.utils import make_progress_bar
+    from db.models import get_recent_failed_logs, get_account_stats, get_group_count
+    from core.config import MAX_GROUPS_PER_USER
     
-    # Get recent logs (both success and fail if possible, or just failed for now)
-    # Reusing get_recent_failed_logs as it contains the most important info
+    phone = getattr(client, 'phone', 'Unknown')
+    stats = await get_account_stats(user_id, phone)
+    group_count = await get_group_count(user_id)
     logs = await get_recent_failed_logs(user_id, phone, limit=10)
     
-    if not logs:
-        await reply_to_command(client, message, f"📋 *ACTIVITY LOGS — {phone}*\n\n⚪ No recent issues found. Everything looks normal!")
-        return
-        
-    text = f"📋 *RECENT ACTIVITY — {phone}*\n"
-    text += f"═══════════════════════\n\n"
+    today_sent = stats.get("today_sent", 0)
+    today_success = stats.get("today_success", 0)
+    overall_rate = stats.get("success_rate", 0)
     
-    for log in logs:
-        ts = log.get("sent_at")
-        time_str = ts.strftime("%H:%M") if ts else "??"
-        status = log.get("status", "unknown")
-        error = log.get("error", "OK")
-        
-        # Determine visual severity from our new mapped error messages
-        icon = "🟢" if status == "success" else "🔴"
-        if "skipped" in status.lower() or "Topic closed" in error:
-            icon = "⚪"
-        elif "Wait" in error or "Rate limited" in error or "slow mode" in error.lower():
-            icon = "🟡"
+    today_bar = make_progress_bar(today_success, today_sent) if today_sent > 0 else make_progress_bar(0, 100)
+    groups_bar = make_progress_bar(group_count, MAX_GROUPS_PER_USER)
+    overall_bar = make_progress_bar(int(overall_rate), 100)
+    
+    text = f"📋 *ACTIVITY LOGS — ID `{phone}`*\n"
+    text += f"═══════════════════════════════════\n\n"
+    text += f"📊 *ACCOUNT ID METRICS*\n"
+    text += f"├ 24h Delivery: `{today_bar}` ({today_success}/{today_sent})\n"
+    text += f"├ Group Slots:  `{groups_bar}` ({group_count}/{MAX_GROUPS_PER_USER})\n"
+    text += f"└ Overall Rate: `{overall_bar}` ({overall_rate}%)\n\n"
+    
+    if not logs:
+        text += f"⚪ *RECENT LOGS*\n"
+        text += f"└ No recent issues found. Everything looks normal!\n"
+    else:
+        text += f"📜 *RECENT EVENT LOGS*\n"
+        for log in logs:
+            ts = log.get("sent_at")
+            time_str = ts.strftime("%H:%M") if ts else "??"
+            status = log.get("status", "unknown")
+            error = log.get("error", "OK")
             
-        text += f"  `{time_str}` {icon} {error[:45]}\n"
-        
-    text += f"\n💡 Only showing important status updates."
+            icon = "🟢" if status == "success" else "🔴"
+            if "skipped" in status.lower() or "Topic closed" in error:
+                icon = "⚪"
+            elif "Wait" in error or "Rate limited" in error or "slow mode" in error.lower():
+                icon = "🟡"
+                
+            text += f"  `{time_str}` {icon} `{error[:40]}`\n"
+            
+    text += f"\n💡 Activity and progress tracked per account ID."
     await reply_to_command(client, message, text)
 
 
@@ -1004,7 +1048,8 @@ async def handle_responder(client: TelegramClient, user_id: int, message, text: 
         if is_premium:
             current_msg = config.get('auto_reply_text', '')
         else:
-            current_msg = "I am Free Message Bot \n\nBy Using @SpinifyAdsBot"
+            from core.config import DEFAULT_AD_MESSAGE
+            current_msg = DEFAULT_AD_MESSAGE
             
         await reply_to_command(client, message,
             f"➤ Auto-Responder: {current}\n\n"
@@ -1027,10 +1072,11 @@ async def handle_responder(client: TelegramClient, user_id: int, message, text: 
     else:
         # Set message
         if not is_premium:
+            from core.config import DEFAULT_AD_MESSAGE
             await reply_to_command(client, message, 
                 "⚠️ *Custom Auto-Responder is a Premium Feature!*\n\n"
                 "As a Free User, your auto-responder will use the default advertising message:\n"
-                "\"I am Free Message Bot \n\nBy Using @SpinifyAdsBot\"\n\n"
+                f"\"{DEFAULT_AD_MESSAGE}\"\n\n"
                 "Upgrade to Premium to customize this message!"
             )
 
@@ -1566,8 +1612,9 @@ async def process_folder_peers(client, user_id, message, folder_name, peers):
     if peers is None:
         peers = []
         
-    # Check current group count
-    count = await get_group_count(user_id)
+    # Check current group count for this specific account phone
+    phone = getattr(client, 'phone', None)
+    count = await get_group_count(user_id, phone=phone)
     available_slots = MAX_GROUPS_PER_USER - count
     
     if available_slots <= 0:
@@ -1596,6 +1643,19 @@ async def process_folder_peers(client, user_id, message, folder_name, peers):
                 continue
             if isinstance(entity, Channel) and getattr(entity, 'broadcast', False):
                 continue
+
+            # Ensure membership
+            from telethon.tl.functions.channels import JoinChannelRequest
+            from telethon.errors import UserAlreadyParticipantError
+            if isinstance(entity, Channel):
+                try:
+                    await client(JoinChannelRequest(entity))
+                except UserAlreadyParticipantError:
+                    pass
+                except Exception as join_err:
+                    logger.warning(f"Could not join folder peer {getattr(entity, 'title', entity)}: {join_err}")
+                    failed.append(getattr(entity, 'title', 'Unknown'))
+                    continue
                 
             chat_id = utils.get_peer_id(entity)
             chat_title = entity.title
@@ -1626,7 +1686,7 @@ async def process_folder_peers(client, user_id, message, folder_name, peers):
     if failed:
         res += f"❌ Skip (exists): {len(failed)}\n"
         
-    new_total = await get_group_count(user_id)
+    new_total = await get_group_count(user_id, phone=phone)
     res += f"\nTotal Groups: {new_total}/{MAX_GROUPS_PER_USER}"
     
     await reply_to_command(client, message, res)
@@ -2271,12 +2331,7 @@ async def handle_remove_ad(client: TelegramClient, user_id: int, message, text: 
 
 
 async def handle_join(client: TelegramClient, user_id: int, message, text: str):
-    """Owner command: .join <username/link/folder_link>... with safe delays and native folder supports (joins only, does not add to DB)."""
-    from core.config import OWNER_ID
-    issuer_id = getattr(message, "sender_id", user_id)
-    if issuer_id != OWNER_ID:
-        await reply_to_command(client, message, "❌ Reserved for owner.")
-        return
+    """Command: .join <username/link/folder_link>... (joins groups/folders and adds them to DB)."""
 
     parts = text.split(maxsplit=1)
     if len(parts) < 2:
@@ -2356,9 +2411,8 @@ async def handle_join(client: TelegramClient, user_id: int, message, text: str):
                             except Exception as peer_err:
                                 logger.error(f"Failed to join folder peer {peer}: {peer_err}")
                                 
-                        joined.append(f"Folder `{title}` ({folder_joined_count}/{len(peers)} groups joined individually)")
-                    else:
-                        raise folder_err
+                        # Save folder peers to database
+                await process_folder_peers(client, user_id, message, title, peers)
                 
             # 2. Check if it's a private chat invite link
             elif any(x in raw_input for x in ["t.me/+", "joinchat/", "t.me/joinchat/"]):
@@ -2369,6 +2423,7 @@ async def handle_join(client: TelegramClient, user_id: int, message, text: str):
                     
                 invite_hash = hash_match.group(1)
                 invite = await client(CheckChatInviteRequest(invite_hash))
+                entity = None
                 
                 if isinstance(invite, ChatInviteAlready):
                     entity = invite.chat
@@ -2383,6 +2438,11 @@ async def handle_join(client: TelegramClient, user_id: int, message, text: str):
                         joined.append(chat_title)
                     else:
                         failed.append((raw_input, "Could not resolve chat from invite"))
+
+                if entity:
+                    chat_id = utils.get_peer_id(entity)
+                    chat_title = getattr(entity, 'title', None) or getattr(entity, 'username', str(chat_id))
+                    await add_group(user_id, chat_id, chat_title, account_phone=getattr(client, 'phone', None))
             
             # 3. Public group/channel username or link
             else:
@@ -2416,7 +2476,9 @@ async def handle_join(client: TelegramClient, user_id: int, message, text: str):
                 if not already_joined:
                     await client(JoinChannelRequest(entity))
                     
-                chat_title = getattr(entity, 'title', None) or getattr(entity, 'username', str(utils.get_peer_id(entity)))
+                chat_id = utils.get_peer_id(entity)
+                chat_title = getattr(entity, 'title', None) or getattr(entity, 'username', str(chat_id))
+                await add_group(user_id, chat_id, chat_title, account_phone=getattr(client, 'phone', None))
                 joined.append(f"{chat_title}" + (" (Already joined)" if already_joined else ""))
                 
         except Exception as e:

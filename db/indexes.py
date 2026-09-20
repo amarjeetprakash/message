@@ -29,8 +29,8 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
         # Config: user_id unique
         ("config", "user_id", {"unique": True}),
         
-        # Groups: (user_id, chat_id) unique compound
-        ("groups", [("user_id", 1), ("chat_id", 1)], {"unique": True}),
+        # Groups: (user_id, account_phone, chat_id) unique compound
+        ("groups", [("user_id", 1), ("account_phone", 1), ("chat_id", 1)], {"name": "idx_groups_user_phone_chat", "sparse": True}),
         ("groups", [("user_id", 1), ("enabled", 1)], {"name": "idx_groups_user_enabled"}),
         ("groups", "user_id", {}),
         ("groups", "account_phone", {}),

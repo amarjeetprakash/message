@@ -83,13 +83,13 @@ LOG_CHANNEL_URL = os.getenv("LOG_CHANNEL_URL", "https://t.me/spinifylogs")
 
 DEFAULT_AUTO_JOIN_GROUP = os.getenv("DEFAULT_AUTO_JOIN_GROUP", "https://t.me/spinifychat")
 DEFAULT_AUTO_JOIN_USERNAME = os.getenv("DEFAULT_AUTO_JOIN_USERNAME", "spinifychat")
-DEFAULT_AD_MESSAGE = os.getenv("DEFAULT_AD_MESSAGE", "I am Free Message Bot \n\nBy Using @SpinifyAdsBot")
+DEFAULT_AD_MESSAGE = os.getenv("DEFAULT_AD_MESSAGE", "🚀 Spinify Ads — 100% FREE!\n\n🤖 Unlimited Bots | Auto Reply & Leave ⚡ Auto Forwarding | Custom Delays\n\n🔥 Automate Your Telegram Ads!\n\n📩 Get Started — Check My Bio!")
 
 
 
 
 # ============== Scheduling Rules ==============
-MAX_GROUPS_PER_USER = _safe_int(os.getenv("MAX_GROUPS_PER_USER", "50"))
+MAX_GROUPS_PER_USER = _safe_int(os.getenv("MAX_GROUPS_PER_USER", "100"))
 GROUP_GAP_SECONDS = _safe_int(os.getenv("GROUP_GAP_SECONDS", "40"))           # 40 seconds (Premium speed)
 MESSAGE_GAP_SECONDS = _safe_int(os.getenv("MESSAGE_GAP_SECONDS", "210"))        # 3.5 minutes
 MIN_INTERVAL_MINUTES = _safe_int(os.getenv("MIN_INTERVAL_MINUTES", "15"))       # Minimum user interval

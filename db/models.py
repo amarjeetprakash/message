@@ -193,7 +193,7 @@ async def get_user_config(user_id: int) -> Dict[str, Any]:
             "copy_mode": False,
             "send_mode": "sequential",
             "auto_reply_enabled": False,
-            "auto_reply_text": "I am Free Message Bot \n\nBy Using @SpinifyAdsBot",
+            "auto_reply_text": "🚀 Spinify Ads — 100% FREE!\n\n🤖 Unlimited Bots | Auto Reply & Leave ⚡ Auto Forwarding | Custom Delays\n\n🔥 Automate Your Telegram Ads!\n\n📩 Get Started — Check My Bio!",
 
 
             "updated_at": datetime.utcnow(),
@@ -244,12 +244,16 @@ async def add_group(user_id: int, chat_id: int, chat_title: str, account_phone: 
     """Add a group linked to a specific account phone."""
     db = get_database()
     
-    # Check group count
+    # Check group count for this specific account phone
     from config import MAX_GROUPS_PER_USER
-    count = await get_group_count(user_id)
+    count = await get_group_count(user_id, phone=account_phone)
     if count >= MAX_GROUPS_PER_USER:
         return False
     
+    query = {"user_id": user_id, "chat_id": chat_id}
+    if account_phone:
+        query["account_phone"] = account_phone
+
     group_doc = {
         "user_id": user_id,
         "chat_id": chat_id,
@@ -261,7 +265,7 @@ async def add_group(user_id: int, chat_id: int, chat_title: str, account_phone: 
     }
     
     await db.groups.update_one(
-        {"user_id": user_id, "chat_id": chat_id},
+        query,
         {"$set": group_doc},
         upsert=True
     )
@@ -319,10 +323,13 @@ async def toggle_group(user_id: int, chat_id: int, enabled: bool, reason: str = 
     )
 
 
-async def get_group_count(user_id: int) -> int:
-    """Get count of user's groups."""
+async def get_group_count(user_id: int, phone: str = None) -> int:
+    """Get count of user's groups (optionally per account phone)."""
     db = get_database()
-    return await db.groups.count_documents({"user_id": user_id})
+    query = {"user_id": user_id}
+    if phone:
+        query["account_phone"] = phone
+    return await db.groups.count_documents(query)
 
 
 async def mark_group_failing(user_id: int, chat_id: int, reason: str):
