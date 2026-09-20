@@ -303,7 +303,7 @@ class UserSender:
             plan_type = (user_plan.get("plan_type") or "").lower() if user_plan else ""
             is_paid_upgrade = (
                 self.user_id == OWNER_ID or
-                (await is_plan_active(self.user_id) and plan_type not in ("free_trial", "free_user", "trial", ""))
+                (await is_plan_active(self.user_id) and plan_type and not any(k in plan_type for k in ("free", "trial")))
             )
             
             # Fetch current profile info
@@ -1493,7 +1493,7 @@ class UserSender:
             plan_type = (user_plan.get("plan_type") or "").lower() if user_plan else ""
             is_paid_upgrade = (
                 self.user_id == OWNER_ID or
-                (await self._cached_is_plan_active() and plan_type not in ("free_trial", "free_user", "trial", ""))
+                (await self._cached_is_plan_active() and plan_type and not any(k in plan_type for k in ("free", "trial")))
             )
         except Exception:
             pass
