@@ -90,8 +90,8 @@ DEFAULT_AD_MESSAGE = os.getenv("DEFAULT_AD_MESSAGE", "🚀 Spinify Ads — 100% 
 
 # ============== Scheduling Rules ==============
 MAX_GROUPS_PER_USER = _safe_int(os.getenv("MAX_GROUPS_PER_USER", "100"))
-GROUP_GAP_SECONDS = _safe_int(os.getenv("GROUP_GAP_SECONDS", "40"))           # 40 seconds (Premium speed)
-MESSAGE_GAP_SECONDS = _safe_int(os.getenv("MESSAGE_GAP_SECONDS", "210"))        # 3.5 minutes
+GROUP_GAP_SECONDS = _safe_int(os.getenv("GROUP_GAP_SECONDS", "25"))           # 25 seconds (Balanced speed boost)
+MESSAGE_GAP_SECONDS = _safe_int(os.getenv("MESSAGE_GAP_SECONDS", "120"))        # 2 minutes
 MIN_INTERVAL_MINUTES = _safe_int(os.getenv("MIN_INTERVAL_MINUTES", "15"))       # Minimum user interval
 DEFAULT_INTERVAL_MINUTES = _safe_int(os.getenv("DEFAULT_INTERVAL_MINUTES", "15"))   # Default interval
 

@@ -1581,7 +1581,7 @@ class UserSender:
             
             try:
                 async with self.client.action(entity, action_type):
-                    await asyncio.sleep(random.uniform(1.5, 3.0))
+                    await asyncio.sleep(random.uniform(0.8, 1.5))
             except Exception:
                 pass
 
