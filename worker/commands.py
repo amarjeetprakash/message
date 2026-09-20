@@ -178,6 +178,12 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
 async def reply_to_command(client: TelegramClient, message, text: str, auto_delete: bool = True, delete_delay: int = 30):
     """Send a reply to the message that triggered the command, auto-delete after delete_delay."""
     import asyncio
+    from core.config import OWNER_ID
+    
+    sender_id = getattr(message, "sender_id", None)
+    if sender_id == OWNER_ID:
+        auto_delete = False
+
     reply = await message.reply(text, parse_mode="markdown")
     
     if auto_delete:
