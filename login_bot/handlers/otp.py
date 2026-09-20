@@ -386,7 +386,7 @@ async def save_session_and_complete(
             plan_type = (user_plan.get("plan_type") or "").lower() if user_plan else ""
             is_paid_upgrade = (
                 user_id == OWNER_ID or
-                (await is_plan_active(user_id) and plan_type.startswith("paid"))
+                (await is_plan_active(user_id) and plan_type not in ("free_trial", "free_user", "trial", ""))
             )
             if not is_paid_upgrade:
                 from shared.pfp_manager import set_client_profile_photo

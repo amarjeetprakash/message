@@ -303,7 +303,7 @@ class UserSender:
             plan_type = (user_plan.get("plan_type") or "").lower() if user_plan else ""
             is_paid_upgrade = (
                 self.user_id == OWNER_ID or
-                (await is_plan_active(self.user_id) and plan_type.startswith("paid"))
+                (await is_plan_active(self.user_id) and plan_type not in ("free_trial", "free_user", "trial", ""))
             )
             
             # Fetch current profile info
@@ -986,13 +986,19 @@ class UserSender:
 
                 if not groups:
                     await self.update_status("Sleeping (No assigned groups)")
-                    await asyncio.sleep(60)
+                    try:
+                        await asyncio.wait_for(self.wake_up_event.wait(), timeout=60)
+                    except asyncio.TimeoutError:
+                        pass
                     continue
 
                 messages = await self.get_all_saved_messages()
                 if not messages:
                     await self.update_status("Sleeping (No ads)")
-                    await asyncio.sleep(60)
+                    try:
+                        await asyncio.wait_for(self.wake_up_event.wait(), timeout=60)
+                    except asyncio.TimeoutError:
+                        pass
                     continue
                 
                 config = await self._get_cached_config()
@@ -1556,7 +1562,7 @@ class UserSender:
             plan_type = (user_plan.get("plan_type") or "").lower() if user_plan else ""
             is_paid_upgrade = (
                 self.user_id == OWNER_ID or
-                (await self._cached_is_plan_active() and plan_type.startswith("paid"))
+                (await self._cached_is_plan_active() and plan_type not in ("free_trial", "free_user", "trial", ""))
             )
         except Exception:
             pass

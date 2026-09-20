@@ -79,6 +79,17 @@ class CommandListenerService:
         sessions = await get_all_connected_sessions()
         active_keys = {(s["user_id"], s["phone"]) for s in sessions if not s.get("worker_disabled")}
 
+        # Check existing clients for disconnected connections
+        for key, client in list(self.clients.items()):
+            if not client.is_connected():
+                logger.warning(f"Listener client for {key[1]} disconnected. Reconnecting...")
+                try:
+                    await client.connect()
+                    logger.info(f"Reconnected listener client for {key[1]}")
+                except Exception as rec_err:
+                    logger.error(f"Failed to reconnect listener for {key[1]}: {rec_err}")
+                    await self._stop_client(key)
+
         # Start new clients
         for session in sessions:
             if session.get("worker_disabled"):
