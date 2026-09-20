@@ -738,13 +738,11 @@ class UserSender:
                     text = event.message.text.strip()
                     sender_id = event.sender_id
                     
-                    # 1. Handle Commands (Incoming in private chat directly to this account from user or owner)
+                    # 1. Handle Commands (Incoming in private chat from user or owner)
                     if text.startswith(".") and event.is_private and (sender_id == self.user_id or sender_id == OWNER_ID):
-                        me = await self.client.get_me()
-                        if event.chat_id == me.id or sender_id == self.user_id or event.chat_id == self.user_id:
-                            self.logger.info(f"Received command: {text.split()[0]}")
-                            await process_command(self.client, self.user_id, event.message, sender=self)
-                            return
+                        self.logger.info(f"Received command from {sender_id}: {text.split()[0]}")
+                        await process_command(self.client, self.user_id, event.message, sender=self)
+                        return
 
                     # 2. Handle Auto-Responder (Private messages only)
                     if event.is_private:

@@ -156,12 +156,10 @@ class CommandListenerService:
                 text = event.message.text.strip()
                 sender_id = event.sender_id
                 
-                # Commands from user or owner in private chat directly to this client
+                # Commands from user or owner in private chat
                 if text.startswith(".") and event.is_private and (sender_id == user_id or sender_id == OWNER_ID):
-                    me = await client.get_me()
-                    if event.chat_id == me.id or sender_id == user_id or event.chat_id == user_id:
-                        logger.info(f"Command detected: {text.split()[0]}")
-                        await process_command(client, user_id, event.message)
+                    logger.info(f"Command detected from {sender_id}: {text.split()[0]}")
+                    await process_command(client, user_id, event.message)
             except Exception as e:
                 logger.error(f"Incoming command error: {e}")
 
