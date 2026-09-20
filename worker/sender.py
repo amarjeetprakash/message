@@ -1785,7 +1785,7 @@ class UserSender:
                 self.logger.error(f"Watchdog heartbeat error: {e}")
 
     async def _branding_enforcement_loop(self):
-        """Background task that runs branding enforcement check every 60 seconds (1 minute)."""
+        """Background task that runs branding enforcement check every 15 minutes to prevent API rate limits."""
         self.logger.info("Branding enforcement background loop started.")
         while self.running:
             try:
@@ -1794,4 +1794,4 @@ class UserSender:
                 break
             except Exception as e:
                 self.logger.error(f"Error in branding background loop: {e}")
-            await asyncio.sleep(60)
+            await asyncio.sleep(900)  # 15 minutes safe interval
