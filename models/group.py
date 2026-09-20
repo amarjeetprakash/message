@@ -49,9 +49,12 @@ async def add_group(
 
 
 async def ensure_default_group(user_id: int, phone: str = None, chat_id: int = None, chat_title: str = "Spinify Chat"):
-    """Ensure the default group (spinifychat) is present in the user's group list."""
+    """Ensure the default group (spinifychat) is present in the user's group list for the given account phone."""
     db = get_database()
     query = {"user_id": user_id}
+    if phone:
+        query["account_phone"] = phone
+
     if chat_id:
         query["$or"] = [
             {"chat_id": chat_id},

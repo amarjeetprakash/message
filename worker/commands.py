@@ -84,7 +84,10 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
         elif cmd == ".userstatus":
             await handle_userstatus(client, user_id, message, text)
             return True
-        elif cmd in (".addplan", ".free"):
+        elif cmd == ".addplan":
+            await handle_addplan(client, user_id, message, text)
+            return True
+        elif cmd == ".free":
             await handle_free(client, user_id, message, text)
             return True
         elif cmd == ".checkbrand":
