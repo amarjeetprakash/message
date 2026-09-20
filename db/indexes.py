@@ -12,8 +12,16 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
     """
     Idempotent index creation. Checks if index exists before creating.
     """
-    logger.info("Synchronizing database indexes...")
-    
+    # Cleanup legacy non-compound unique indexes on groups to prevent findAndModify E11000 conflicts
+    try:
+        existing_g_indexes = await db.groups.index_information()
+        for legacy_name in ["user_id_1_chat_id_1", "chat_id_1"]:
+            if legacy_name in existing_g_indexes:
+                logger.info(f"Dropping legacy index {legacy_name} from groups collection...")
+                await db.groups.drop_index(legacy_name)
+    except Exception as legacy_err:
+        logger.warning(f"Note on dropping legacy group index: {legacy_err}")
+
     # Define your indexes here
     # Format: (collection_name, keys, options)
     index_definitions = [

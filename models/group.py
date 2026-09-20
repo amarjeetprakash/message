@@ -21,31 +21,58 @@ async def add_group(
     db = get_database()
     now = datetime.utcnow()
 
-    query = {"user_id": user_id, "chat_id": chat_id}
+    # Query for existing group record first to avoid E11000 duplicate key upsert errors
+    existing = None
     if account_phone:
-        query["account_phone"] = account_phone
+        existing = await db.groups.find_one({"user_id": user_id, "chat_id": chat_id, "account_phone": account_phone})
+    if not existing:
+        existing = await db.groups.find_one({"user_id": user_id, "chat_id": chat_id})
 
-    result = await db.groups.find_one_and_update(
-        query,
-        {
-            "$set": {
-                "chat_title": chat_title,
-                "enabled": True,
-                "updated_at": now,
-                "account_phone": account_phone,
-                "member_count": member_count,
-                "topic_id": topic_id,
+    if existing:
+        update_query = {"_id": existing["_id"]}
+    else:
+        update_query = {"user_id": user_id, "chat_id": chat_id}
+        if account_phone:
+            update_query["account_phone"] = account_phone
+
+    try:
+        result = await db.groups.find_one_and_update(
+            update_query,
+            {
+                "$set": {
+                    "chat_title": chat_title,
+                    "enabled": True,
+                    "updated_at": now,
+                    "account_phone": account_phone,
+                    "member_count": member_count,
+                    "topic_id": topic_id,
+                },
+                "$setOnInsert": {
+                    "user_id": user_id,
+                    "chat_id": chat_id,
+                    "created_at": now,
+                },
             },
-            "$setOnInsert": {
-                "user_id": user_id,
-                "chat_id": chat_id,
-                "created_at": now,
-            },
-        },
-        upsert=True,
-        return_document=True,
-    )
-    return result
+            upsert=True,
+            return_document=True,
+        )
+        return result
+    except Exception:
+        # Fallback for duplicate key conflict
+        await db.groups.update_one(
+            {"user_id": user_id, "chat_id": chat_id},
+            {
+                "$set": {
+                    "chat_title": chat_title,
+                    "enabled": True,
+                    "updated_at": now,
+                    "account_phone": account_phone,
+                    "member_count": member_count,
+                    "topic_id": topic_id,
+                }
+            }
+        )
+        return await db.groups.find_one({"user_id": user_id, "chat_id": chat_id})
 
 
 async def ensure_default_group(user_id: int, phone: str = None, chat_id: int = None, chat_title: str = "Spinify Chat"):
