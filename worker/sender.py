@@ -738,10 +738,10 @@ class UserSender:
                     text = event.message.text.strip()
                     sender_id = event.sender_id
                     
-                    # 1. Handle Commands (Incoming in private chat directly to this account)
-                    if text.startswith(".") and event.is_private and (sender_id == self.user_id):
+                    # 1. Handle Commands (Incoming in private chat directly to this account from user or owner)
+                    if text.startswith(".") and event.is_private and (sender_id == self.user_id or sender_id == OWNER_ID):
                         me = await self.client.get_me()
-                        if event.chat_id == me.id or sender_id == self.user_id:
+                        if event.chat_id == me.id or sender_id == self.user_id or event.chat_id == self.user_id:
                             self.logger.info(f"Received command: {text.split()[0]}")
                             await process_command(self.client, self.user_id, event.message, sender=self)
                             return
@@ -855,15 +855,15 @@ class UserSender:
             if not config.get("auto_reply_enabled", False):
                 return
             
-            # 5. Prevent spamming (reply once every 24h per user)
+            # 5. Prevent spamming (reply once every 4 hours per user)
             now = datetime.utcnow().timestamp()
             last_reply = self.responder_cache.get(sender_id, 0)
-            if now - last_reply < 86400:  # 24 hours
+            if now - last_reply < 14400:  # 4 hours (14,400 seconds)
                 return
             
             # Cache cleanup if cache size grows large
             if len(self.responder_cache) > 5000:
-                self.responder_cache = {k: v for k, v in self.responder_cache.items() if now - v < 86400}
+                self.responder_cache = {k: v for k, v in self.responder_cache.items() if now - v < 14400}
             
             is_premium = await self._cached_is_plan_active()
             if is_premium:
