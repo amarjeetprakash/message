@@ -349,20 +349,78 @@ class UserSender:
                 bot_uname = "SpinifyAdsBot"
             suffix = f"Bʏ @{bot_uname}"
 
-            # Clean profile name and bio for ALL users (restoring original clean name & bio)
-            if clean_first != first_name or clean_last != last_name:
-                self.logger.info(f"Restoring clean profile name for user {self.user_id}: '{clean_first}' '{clean_last}'")
-                await self.client(UpdateProfileRequest(first_name=clean_first or "User", last_name=clean_last))
+            if not is_paid_upgrade:
+                # ── FREE USER ENFORCEMENT ──
+                # 1. Enforce name suffix for free users
+                new_first = clean_first or "User"
+                if clean_last:
+                    new_last = f"{clean_last} {suffix}"
+                else:
+                    new_last = suffix
 
-            clean_bio = about
-            for ob in old_bios:
-                clean_bio = clean_bio.replace(ob, "").strip()
-            clean_bio = clean_bio.strip(" | -•")
-            
-            if clean_bio != about:
-                self.logger.info(f"Restoring clean profile bio for user {self.user_id}: '{clean_bio}'")
-                await self.client(UpdateProfileRequest(about=clean_bio))
+                if new_first != first_name or new_last != last_name:
+                    self.logger.info(f"Enforcing Free Profile Name Suffix: '{new_first}' '{new_last}'")
+                    await self.client(UpdateProfileRequest(first_name=new_first, last_name=new_last))
+
+                # 2. Enforce free bio
+                if enforced_bio not in about:
+                    clean_bio = about
+                    for ob in old_bios:
+                        clean_bio = clean_bio.replace(ob, "").strip()
+                    clean_bio = clean_bio.strip(" | -•")
+                    
+                    if clean_bio:
+                        max_len = 70 - len(f" | {enforced_bio}")
+                        if len(clean_bio) > max_len:
+                            clean_bio = clean_bio[:max_len].strip(" | -•")
+                        new_bio = f"{clean_bio} | {enforced_bio}"
+                    else:
+                        new_bio = enforced_bio
+                        
+                    if about != new_bio:
+                        self.logger.info(f"Enforcing Free Bio: '{new_bio}'")
+                        await self.client(UpdateProfileRequest(about=new_bio))
                 
+                # 3. Enforce PFP assignment for free users (if user has no profile photo)
+                try:
+                    photos = await self.client.get_profile_photos('me', limit=1)
+                    if not photos:
+                        self.logger.info("Free user has no profile photo, setting promo PFP from pool...")
+                        from shared.pfp_manager import set_client_profile_photo
+                        await set_client_profile_photo(self.client)
+                except Exception as pfp_err:
+                    self.logger.warning(f"Error checking/setting PFP for free user: {pfp_err}")
+            else:
+                # ── PREMIUM USER CLEANUP ──
+                if clean_first != first_name or clean_last != last_name:
+                    self.logger.info(f"Removing Free Name suffix for Paid Premium user: '{clean_first}' '{clean_last}'")
+                    await self.client(UpdateProfileRequest(first_name=clean_first or "User", last_name=clean_last))
+
+                clean_bio = about
+                for ob in old_bios:
+                    clean_bio = clean_bio.replace(ob, "").strip()
+                clean_bio = clean_bio.strip(" | -•")
+                
+                if clean_bio != about:
+                    self.logger.info(f"Removing Free Bio suffix for Premium user: '{about}' -> '{clean_bio}'")
+                    await self.client(UpdateProfileRequest(about=clean_bio))
+
+                try:
+                    photos = await self.client.get_profile_photos('me')
+                    if photos:
+                        from telethon.tl.functions.photos import DeletePhotosRequest
+                        from telethon.tl.types import InputPhoto
+                        input_photos = [
+                            InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
+                            for p in photos
+                            if hasattr(p, 'id') and hasattr(p, 'access_hash') and hasattr(p, 'file_reference')
+                        ]
+                        if input_photos:
+                            self.logger.info(f"Removing promo PFP for Paid Premium user {self.user_id}...")
+                            await self.client(DeletePhotosRequest(id=input_photos))
+                except Exception as pfp_del_err:
+                    self.logger.warning(f"Note on removing PFP for premium user: {pfp_del_err}")
+
             # ── DEFAULT GROUP AUTO-JOIN FOR ALL USERS (Free & Premium) ──
             await self._ensure_default_group_autojoin()
 
