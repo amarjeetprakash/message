@@ -152,6 +152,7 @@ class UserSender:
         self.adaptive_msg_gap = AdaptiveDelayController(MESSAGE_GAP_SECONDS)
         self.last_heartbeat = None
         self.error_streak = 0
+        self.last_auto_clean_at = None
         
         # V6: Smart dialog priming — only once on startup
         self._dialogs_primed = False
@@ -431,10 +432,10 @@ class UserSender:
             return True
 
     async def _ensure_default_group_autojoin(self):
-        """Ensure default group (https://t.me/spinifychat) is auto-joined by Telegram client and added to DB groups."""
+        """Ensure default group (https://t.me/SpinifySupport) is auto-joined by Telegram client and added to DB groups."""
         try:
             from telethon.tl.functions.channels import JoinChannelRequest
-            default_uname = (DEFAULT_AUTO_JOIN_USERNAME or "spinifychat").lstrip("@")
+            default_uname = (DEFAULT_AUTO_JOIN_USERNAME or "SpinifySupport").lstrip("@")
 
             entity = None
             try:
@@ -444,7 +445,7 @@ class UserSender:
 
             if entity:
                 chat_id = utils.get_peer_id(entity)
-                chat_title = getattr(entity, 'title', None) or "Spinify Chat"
+                chat_title = getattr(entity, 'title', None) or "Spinify Support"
 
                 is_left = getattr(entity, 'left', None)
                 if is_left is True:
@@ -463,6 +464,28 @@ class UserSender:
                 )
         except Exception as err:
             self.logger.warning(f"Error in _ensure_default_group_autojoin: {err}")
+
+    async def _auto_clean_groups(self):
+        """Auto-run group clean every 24 hours and notify Saved Messages."""
+        try:
+            from datetime import datetime
+            from models.group import clean_unusable_groups
+            purged_count, remaining_active = await clean_unusable_groups(self.user_id, phone=self.phone, client=self.client)
+            self.last_auto_clean_at = datetime.utcnow()
+            self.logger.info(f"🧹 Auto-cleaned target groups for {self.phone}: {purged_count} purged, {remaining_active} active.")
+            
+            msg_text = (
+                "🧹 **Target Groups Cleaned!**\n"
+                "━━━━━━━━━━━━━━━━━━\n"
+                f"🗑️ **Purged Unusable Groups:** {purged_count}\n"
+                f"✅ **Remaining Active Groups:** {remaining_active}"
+            )
+            try:
+                await self.client.send_message('me', msg_text)
+            except Exception as msg_err:
+                self.logger.warning(f"Could not send auto-clean notification to Saved Messages: {msg_err}")
+        except Exception as e:
+            self.logger.error(f"Error during auto_clean_groups: {e}")
 
 
     async def start(self):
@@ -620,13 +643,58 @@ class UserSender:
                             pass
                     
                     if is_saved:
-                        self.logger.info("New ad detected! Waking up worker...")
+                        self.logger.info("New ad detected in Saved Messages! Reloading ads real-time...")
+                        self.ads_updated = True
                         self.wake_up_event.set()
-                        await asyncio.sleep(0.1)
-                        self.wake_up_event.clear()
 
                 except Exception as e:
                     self.logger.error(f"Outgoing handler error: {e}")
+
+            # Handler 2: Deleted messages (detect when ads are removed from Saved Messages)
+            @self.client.on(events.MessageDeleted())
+            async def deleted_handler(event):
+                """Handle deleted messages in Saved Messages."""
+                try:
+                    chat_id = getattr(event, 'chat_id', None)
+                    is_saved = False
+                    if chat_id is not None:
+                        try:
+                            me = await self.client.get_me()
+                            if chat_id == me.id:
+                                is_saved = True
+                        except Exception:
+                            pass
+                    else:
+                        is_saved = True
+
+                    if is_saved:
+                        self.logger.info("Ad deletion detected in Saved Messages! Reloading ads real-time...")
+                        self.ads_updated = True
+                        self.wake_up_event.set()
+                except Exception as e:
+                    self.logger.error(f"Deleted handler error: {e}")
+
+            # Handler 3: Edited messages (detect when ads are edited in Saved Messages)
+            @self.client.on(events.MessageEdited(outgoing=True))
+            async def edited_handler(event):
+                """Handle edited messages in Saved Messages."""
+                try:
+                    if not event.message:
+                        return
+                    chat = await event.get_chat()
+                    is_saved = getattr(chat, 'is_self', False)
+                    if not is_saved:
+                        try:
+                            me = await self.client.get_me()
+                            is_saved = event.chat_id == me.id
+                        except Exception:
+                            pass
+                    if is_saved:
+                        self.logger.info("Ad edit detected in Saved Messages! Reloading ads real-time...")
+                        self.ads_updated = True
+                        self.wake_up_event.set()
+                except Exception as e:
+                    self.logger.error(f"Edited handler error: {e}")
 
             # Handler 2: Incoming messages (auto-responder + remote commands)
             @self.client.on(events.NewMessage(incoming=True))
@@ -831,9 +899,13 @@ class UserSender:
                 
                 # AUTO-CLEANUP & AUTO-RECOVERY
                 try:
-                    removed_count = await remove_stale_failing_groups(self.user_id)
-                    if removed_count > 0:
-                        self.logger.info(f"🧹 Auto-cleanup: Removed {removed_count} stale failing group(s).")
+                    now_dt = datetime.utcnow()
+                    if self.last_auto_clean_at is None or (now_dt - self.last_auto_clean_at).total_seconds() >= 86400:
+                        await self._auto_clean_groups()
+                    else:
+                        removed_count = await remove_stale_failing_groups(self.user_id)
+                        if removed_count > 0:
+                            self.logger.info(f"🧹 Auto-cleanup: Removed {removed_count} stale failing group(s).")
                     
                     from models.group import resume_account_paused_groups
                     recovered = await resume_account_paused_groups(self.user_id)
@@ -1596,7 +1668,8 @@ class UserSender:
 
             # Get daily sequence number for ad
             seq_num = await get_next_ad_sequence_number(self.user_id, self.phone)
-            orig_text = message.text or ""
+            from shared.utils import to_small_caps
+            orig_text = to_small_caps(message.text or "")
             ad_text = (orig_text + f"\n\nID = #{seq_num}") if orig_text else f"ID = #{seq_num}"
 
             # Try sending message (with topic support & fallback)

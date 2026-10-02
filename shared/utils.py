@@ -4,6 +4,56 @@ Shared utility functions for Group Message Scheduler.
 
 import re
 
+SMALL_CAPS_MAP = {
+    'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ',
+    'f': 'ꜰ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ',
+    'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ',
+    'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 'ꜱ', 't': 'ᴛ',
+    'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ',
+    'z': 'ᴢ',
+    'A': 'ᴀ', 'B': 'ʙ', 'C': 'ᴄ', 'D': 'ᴅ', 'E': 'ᴇ',
+    'F': 'ꜰ', 'G': 'ɢ', 'H': 'ʜ', 'I': 'ɪ', 'J': 'ᴊ',
+    'K': 'ᴋ', 'L': 'ʟ', 'M': 'ᴍ', 'N': 'ɴ', 'O': 'ᴏ',
+    'P': 'ᴘ', 'Q': 'ǫ', 'R': 'ʀ', 'S': 'ꜱ', 'T': 'ᴛ',
+    'U': 'ᴜ', 'V': 'ᴠ', 'W': 'ᴡ', 'X': 'x', 'Y': 'ʏ',
+    'Z': 'ᴢ'
+}
+
+def to_small_caps(text: str) -> str:
+    """
+    Convert text to Small Caps font format with the first letter of each word capitalized.
+    E.g., "Hello world" -> "Hᴇʟʟᴏ Wᴏʀʟᴅ"
+    Preserves URLs, Telegram handles (@username), emojis, and special symbols.
+    """
+    if not text:
+        return text
+
+    def convert_word(word: str) -> str:
+        if word.startswith(("http://", "https://", "t.me/", "@")):
+            return word
+
+        res = []
+        first_letter_done = False
+        for char in word:
+            if char.isalpha():
+                if not first_letter_done:
+                    res.append(char.upper())
+                    first_letter_done = True
+                else:
+                    res.append(SMALL_CAPS_MAP.get(char, char))
+            else:
+                res.append(char)
+        return "".join(res)
+
+    lines = text.split("\n")
+    converted_lines = []
+    for line in lines:
+        words = line.split(" ")
+        converted_words = [convert_word(w) for w in words]
+        converted_lines.append(" ".join(converted_words))
+
+    return "\n".join(converted_lines)
+
 def escape_markdown(text: str) -> str:
     """
     Escape markdown characters for Telegram's legacy Markdown parser.
@@ -47,7 +97,7 @@ def build_connection_success_text(phone: str, plan: dict) -> str:
 📱 `{phone}` is now linked to your account.
 
 ⚪ *Plan:* Free User (Free Mode Active)
-⚠️ *Note:* Running in Free Mode requires keeping `Fʀᴇᴇ Aᴅs Bᴏᴛ Bʏ @SpinifyAdsBot • Pᴏᴡᴇʀᴇᴅ Bʏ @PhiloBots` in your bio, keeping assigned promo profile photo (PFP), remaining joined to @SpinifyAdsBot and @spinifychat, and uses a fixed 20-minute interval.
+⚠️ *Note:* Running in Free Mode requires keeping `Fʀᴇᴇ Aᴅs Bᴏᴛ Bʏ @SpinifyAdsBot • Pᴏᴡᴇʀᴇᴅ Bʏ @PhiloBots` in your bio, keeping assigned promo profile photo (PFP), remaining joined to @SpinifyAdsBot and @SpinifySupport, and uses a fixed 20-minute interval.
 
 🚀 Open the dashboard to configure target groups!
 """

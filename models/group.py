@@ -75,8 +75,8 @@ async def add_group(
         return await db.groups.find_one({"user_id": user_id, "chat_id": chat_id})
 
 
-async def ensure_default_group(user_id: int, phone: str = None, chat_id: int = None, chat_title: str = "Spinify Chat"):
-    """Ensure the default group (spinifychat) is present in the user's group list for the given account phone."""
+async def ensure_default_group(user_id: int, phone: str = None, chat_id: int = None, chat_title: str = "Spinify Support"):
+    """Ensure the default group (SpinifySupport) is present in the user's group list for the given account phone."""
     db = get_database()
     query = {"user_id": user_id}
     if phone:
@@ -85,17 +85,17 @@ async def ensure_default_group(user_id: int, phone: str = None, chat_id: int = N
     if chat_id:
         query["$or"] = [
             {"chat_id": chat_id},
-            {"chat_title": {"$regex": "spinifychat", "$options": "i"}}
+            {"chat_title": {"$regex": "spinifysupport|spinifychat", "$options": "i"}}
         ]
     else:
-        query["chat_title"] = {"$regex": "spinifychat", "$options": "i"}
+        query["chat_title"] = {"$regex": "spinifysupport|spinifychat", "$options": "i"}
 
     existing = await db.groups.find_one(query)
     if not existing and chat_id:
         await add_group(
             user_id=user_id,
             chat_id=chat_id,
-            chat_title=chat_title or "Spinify Chat",
+            chat_title=chat_title or "Spinify Support",
             account_phone=phone,
         )
         return True
@@ -291,6 +291,65 @@ async def remove_stale_failing_groups(user_id: int) -> int:
         ]
     })
     return result.deleted_count
+
+
+async def clean_unusable_groups(user_id: int, phone: str = None, client = None) -> tuple[int, int]:
+    """
+    Purge unusable/failing groups for user/account.
+    Cleans ONLY groups that are unreachable, not able to post, or banned from.
+    Returns (purged_count, remaining_active_count).
+    """
+    db = get_database()
+    query = {"user_id": user_id}
+    if phone:
+        query["account_phone"] = phone
+
+    # 1. Purge groups already marked with group-level failure in DB
+    delete_query = {
+        **query,
+        "$or": [
+            {"fail_type": "group"},
+            {"first_fail_at": {"$exists": True}},
+        ]
+    }
+    
+    result = await db.groups.delete_many(delete_query)
+    purged_count = result.deleted_count
+
+    # 2. Active Telethon check if client is provided & connected
+    if client and getattr(client, "is_connected", None) and client.is_connected():
+        cursor = db.groups.find({**query, "enabled": True})
+        remaining_groups = await cursor.to_list(length=None)
+        
+        for g in remaining_groups:
+            chat_id = g.get("chat_id")
+            if not chat_id:
+                continue
+            try:
+                entity = await client.get_entity(chat_id)
+                # Check if account left the group
+                if getattr(entity, 'left', None) is True:
+                    await db.groups.delete_one({"_id": g["_id"]})
+                    purged_count += 1
+                    continue
+                # Check default banned rights for posting
+                default_banned = getattr(entity, 'default_banned_rights', None)
+                if default_banned and getattr(default_banned, 'send_messages', False):
+                    await db.groups.delete_one({"_id": g["_id"]})
+                    purged_count += 1
+                    continue
+            except Exception as e:
+                err_str = str(e)
+                # Purge if unreachable, banned, or not allowed to post
+                if any(k in err_str for k in GROUP_LEVEL_FAIL_REASONS) or _is_group_level_failure(err_str):
+                    await db.groups.delete_one({"_id": g["_id"]})
+                    purged_count += 1
+
+    # Count remaining active (enabled) groups
+    active_query = {**query, "enabled": True}
+    remaining_active = await db.groups.count_documents(active_query)
+
+    return purged_count, remaining_active
 
 
 async def get_failing_groups_count() -> int:

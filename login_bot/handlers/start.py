@@ -49,13 +49,13 @@ To connect your accounts, you must be a member of: {missing_mentions}.
             channel_clean = CHANNEL_USERNAME.lstrip('@')
             if f"@{channel_clean}".lower() in missing_lower:
                 buttons.append([InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{channel_clean}")])
-        if "@spinifychat" in missing_lower:
-            buttons.append([InlineKeyboardButton("💬 Join Chat", url="https://t.me/spinifychat")])
+        if "@spinifysupport" in missing_lower:
+            buttons.append([InlineKeyboardButton("💬 Join Group", url="https://t.me/SpinifySupport")])
             
         if not buttons:
             channel_clean = CHANNEL_USERNAME.lstrip('@') if CHANNEL_USERNAME else "SpinifyAdsBot"
             buttons.append([InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{channel_clean}")])
-            buttons.append([InlineKeyboardButton("💬 Join Chat", url="https://t.me/spinifychat")])
+            buttons.append([InlineKeyboardButton("💬 Join Group", url="https://t.me/SpinifySupport")])
             
         keyboard = InlineKeyboardMarkup(buttons)
         await update.message.reply_text(

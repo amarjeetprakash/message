@@ -96,10 +96,10 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
         elif cmd == ".clearads":
             await handle_clearads(client, user_id, message, sender)
             return True
-        elif cmd == ".setads":
+        elif cmd in (".setads", ".setad", ".addad", ".ad"):
             await handle_setads(client, user_id, message, sender)
             return True
-        elif cmd in (".remove", ".rmad"):
+        elif cmd in (".remove", ".rmad", ".delad", ".deletead", ".delads", ".rmads"):
             await handle_remove_ad(client, user_id, message, text, sender)
             return True
         elif cmd in (".join", ".joinfolder", ".addlist"):
@@ -128,6 +128,9 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
             return True
         elif cmd == ".clear":
             await handle_clear(client, user_id, message)
+            return True
+        elif cmd in (".clean", ".cleangroups", ".purge"):
+            await handle_clean(client, user_id, message, sender)
             return True
         elif cmd == ".logs":
             await handle_logs(client, user_id, message)
@@ -206,6 +209,7 @@ async def handle_help(client: TelegramClient, user_id: int, message):
         "├ `.addfolder [name]` — Add Telegram folder\n"
         "├ `.rmgroup [idx]` — Remove group by index\n"
         "├ `.rmpaused` — Remove all paused groups\n"
+        "├ `.clean` — Purge unusable groups (Auto-runs 24h)\n"
         "├ `.pauseall` — Pause ALL groups at once\n"
         "├ `.resumeall` — Resume ALL groups at once\n"
         "├ `.clear` — Remove *EVERYTHING* from list\n"
@@ -856,6 +860,24 @@ async def handle_clear(client: TelegramClient, user_id: int, message):
         await reply_to_command(client, message, f"🗑️ *WIPED* — All {count} groups have been removed from your list.", auto_delete=False)
     else:
         await reply_to_command(client, message, "⚪ Your group list is already empty.", auto_delete=False)
+
+async def handle_clean(client: TelegramClient, user_id: int, message, sender=None):
+    """Handle .clean command to purge unusable groups and show stats."""
+    from datetime import datetime
+    from models.group import clean_unusable_groups
+    phone = getattr(client, 'phone', None)
+    
+    purged_count, remaining_active = await clean_unusable_groups(user_id, phone=phone, client=client)
+    if sender:
+        sender.last_auto_clean_at = datetime.utcnow()
+        
+    text = (
+        "🧹 **Target Groups Cleaned!**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"🗑️ **Purged Unusable Groups:** {purged_count}\n"
+        f"✅ **Remaining Active Groups:** {remaining_active}"
+    )
+    await reply_to_command(client, message, text, auto_delete=False)
 
 async def handle_logs(client: TelegramClient, user_id: int, message):
     """Handle .logs command to show recent activity and progress bar for each account ID."""
@@ -2123,8 +2145,6 @@ async def handle_clearads(client: TelegramClient, user_id: int, message, sender=
         if sender:
             sender.ads_updated = True
             sender.wake_up_event.set()
-            await asyncio.sleep(0.1)
-            sender.wake_up_event.clear()
 
     except Exception as e:
         logger.error(f"[User {user_id}] Error in .clearads: {e}")
@@ -2168,6 +2188,8 @@ async def handle_setads(client: TelegramClient, user_id: int, message, sender=No
             except Exception as del_err:
                 logger.warning(f"[User {user_id}] Failed to clear old ads in handle_setads: {del_err}")
 
+        from shared.utils import to_small_caps
+
         if message.is_reply:
             reply_msg = await message.get_reply_message()
             if not reply_msg:
@@ -2176,12 +2198,13 @@ async def handle_setads(client: TelegramClient, user_id: int, message, sender=No
             
             # Send/copy reply_msg to Saved Messages
             if reply_msg.text or reply_msg.media:
+                formatted_text = to_small_caps(reply_msg.text) if reply_msg.text else None
                 try:
                     saved_msg = await client.send_message(
                         'me',
-                        message=reply_msg.text or None,
+                        message=formatted_text,
                         file=reply_msg.media,
-                        formatting_entities=reply_msg.entities if reply_msg.text else None
+                        formatting_entities=reply_msg.entities if (reply_msg.text and not formatted_text) else None
                     )
                 except Exception:
                     saved_msg = await client.forward_messages('me', reply_msg)
@@ -2197,9 +2220,10 @@ async def handle_setads(client: TelegramClient, user_id: int, message, sender=No
                 await status_msg.edit("❌ **Usage:** `.setads <ad message>` or reply to a message with `.setads`.")
                 return
                 
+            formatted_cmd_text = to_small_caps(cmd_text) if cmd_text else None
             saved_msg = await client.send_message(
                 'me',
-                message=cmd_text or None,
+                message=formatted_cmd_text,
                 file=message.media
             )
             
@@ -2209,8 +2233,6 @@ async def handle_setads(client: TelegramClient, user_id: int, message, sender=No
         if sender:
             sender.ads_updated = True
             sender.wake_up_event.set()
-            await asyncio.sleep(0.1)
-            sender.wake_up_event.clear()
 
         # Clean up trigger command message so it isn't saved as an ad.
         try:
@@ -2308,8 +2330,6 @@ async def handle_remove_ad(client: TelegramClient, user_id: int, message, text: 
             if sender:
                 sender.ads_updated = True
                 sender.wake_up_event.set()
-                await asyncio.sleep(0.1)
-                sender.wake_up_event.clear()
         else:
             await status_msg.edit("⚠️ **Failed to remove ad(s).** The specified ID(s) could not be found or deleted from Saved Messages.")
 

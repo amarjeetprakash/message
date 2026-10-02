@@ -129,9 +129,9 @@ if not _raw_channel or _raw_channel.lstrip("@").lower() in ["automessageschedule
 else:
     CHANNEL_USERNAME: str = _raw_channel
 
-DEFAULT_AUTO_JOIN_GROUP: str = os.getenv("DEFAULT_AUTO_JOIN_GROUP", "https://t.me/spinifychat")
-DEFAULT_AUTO_JOIN_USERNAME: str = os.getenv("DEFAULT_AUTO_JOIN_USERNAME", "spinifychat")
-DEFAULT_AD_MESSAGE: str = os.getenv("DEFAULT_AD_MESSAGE", "🚀 Spinify Ads — 100% FREE!\n\n🤖 Unlimited Bots | Auto Reply & Leave ⚡ Auto Forwarding | Custom Delays\n\n🔥 Automate Your Telegram Ads!\n\n📩 Get Started — Check My Bio!")
+DEFAULT_AUTO_JOIN_GROUP: str = os.getenv("DEFAULT_AUTO_JOIN_GROUP", "https://t.me/SpinifySupport")
+DEFAULT_AUTO_JOIN_USERNAME: str = os.getenv("DEFAULT_AUTO_JOIN_USERNAME", "SpinifySupport")
+DEFAULT_AD_MESSAGE: str = os.getenv("DEFAULT_AD_MESSAGE", "🚀 Sᴘɪɴɪꜰʏ Aᴅꜱ — 100% Fʀᴇᴇ!\n\n🤖 Uɴʟɪᴍɪᴛᴇᴅ Bᴏᴛꜱ | Aᴜᴛᴏ Rᴇᴘʟʏ & Lᴇᴀᴠᴇ ⚡ Aᴜᴛᴏ Fᴏʀᴡᴀʀᴅɪɴɢ | Cᴜꜱᴛᴏᴍ Dᴇʟᴀʏꜱ\n\n🔥 Aᴜᴛᴏᴍᴀᴛᴇ Yᴏᴜʀ Tᴇʟᴇɢʀᴀᴍ Aᴅꜱ!\n\n📩 Gᴇᴛ Sᴛᴀʀᴛᴇᴅ — Cʜᴇᴄᴋ Mʏ Bɪᴏ!")
 
 
 
