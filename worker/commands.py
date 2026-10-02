@@ -132,6 +132,18 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
         elif cmd in (".clean", ".cleangroups", ".purge"):
             await handle_clean(client, user_id, message, sender)
             return True
+        elif cmd in (".export", ".exportgroups"):
+            await handle_exportgroups(client, user_id, message)
+            return True
+        elif cmd in (".import", ".importgroups"):
+            await handle_importgroups(client, user_id, message, text)
+            return True
+        elif cmd in (".restart", ".reload"):
+            await handle_restart(client, user_id, message, sender)
+            return True
+        elif cmd in (".clearall", ".wipeall"):
+            await handle_clearall(client, user_id, message, sender)
+            return True
         elif cmd == ".logs":
             await handle_logs(client, user_id, message)
             return True
@@ -206,6 +218,8 @@ async def handle_help(client: TelegramClient, user_id: int, message):
         "💎 *KURUP ADS V6 ELITE — COMMANDS* 💎\n\n"
         "📢 *GROUP MANAGEMENT*\n"
         "├ `.addgroup [url]` — Add target group\n"
+        "├ `.export` — Export target group links list\n"
+        "├ `.import [urls]` — Bulk import target group links\n"
         "├ `.addfolder [name]` — Add Telegram folder\n"
         "├ `.rmgroup [idx]` — Remove group by index\n"
         "├ `.rmpaused` — Remove all paused groups\n"
@@ -229,6 +243,7 @@ async def handle_help(client: TelegramClient, user_id: int, message):
         "├ `.check` — Live send diagnostic check\n"
         "├ `.stats` — Performance & Success rate\n"
         "├ `.logs` — Recent activity feed\n"
+        "├ `.restart` — Real-time reload worker & ads\n"
         "├ `.pause` — Global pause all groups\n"
         "├ `.resume` — Global resume all groups\n"
         "└ `.ping` — Connectivity test\n\n"
@@ -236,7 +251,8 @@ async def handle_help(client: TelegramClient, user_id: int, message):
         "├ `.show` — Preview active saved ads\n"
         "├ `.setads` — Set ad into Saved Messages\n"
         "├ `.remove [ad_id]` — Remove specific ad by ID\n"
-        "└ `.clearads` — Clear all Saved Messages / ads\n"
+        "├ `.clearads` — Clear all Saved Messages / ads\n"
+        "└ `.clearall` — Wipe all ads and target groups\n"
     ).format(min=MIN_INTERVAL_MINUTES)
     
     await reply_to_command(client, message, text)
@@ -878,6 +894,145 @@ async def handle_clean(client: TelegramClient, user_id: int, message, sender=Non
         f"✅ **Remaining Active Groups:** {remaining_active}"
     )
     await reply_to_command(client, message, text, auto_delete=False)
+
+async def handle_exportgroups(client: TelegramClient, user_id: int, message):
+    """Handle .export / .exportgroups command to export all target group links."""
+    from models.group import get_user_groups
+    phone = getattr(client, 'phone', None)
+    groups = await get_user_groups(user_id, phone=phone)
+    
+    if not groups:
+        await reply_to_command(client, message, "⚪ No target groups found to export.", auto_delete=False)
+        return
+
+    lines = ["📋 **TARGET GROUPS EXPORT**", "━━━━━━━━━━━━━━━━━━"]
+    for g in groups:
+        username = g.get("username")
+        invite_link = g.get("invite_link")
+        chat_title = g.get("chat_title", "Group")
+        if username:
+            lines.append(f"https://t.me/{username.lstrip('@')}")
+        elif invite_link:
+            lines.append(invite_link)
+        else:
+            lines.append(f"{chat_title} (`{g.get('chat_id')}`)")
+            
+    export_text = "\n".join(lines)
+    await reply_to_command(client, message, export_text, auto_delete=False)
+
+async def handle_importgroups(client: TelegramClient, user_id: int, message, text: str = ""):
+    """Handle .import [urls] command to bulk add target group links/usernames."""
+    import re
+    from models.group import add_group, get_group_count
+    
+    raw_text = text
+    if message.is_reply:
+        reply_msg = await message.get_reply_message()
+        if reply_msg and reply_msg.text:
+            raw_text = reply_msg.text
+
+    pattern = r'(https?://t\.me/[^\s]+|t\.me/[^\s]+|@[A-Za-z0-9_]{4,})'
+    targets = re.findall(pattern, raw_text)
+    
+    if not targets:
+        await reply_to_command(client, message, "❌ **Usage:** `.import <urls/usernames>` or reply to a text list with `.import`.", auto_delete=False)
+        return
+        
+    status_msg = await reply_to_command(client, message, f"⏳ **Importing {len(targets)} target groups...**", auto_delete=False)
+    
+    phone = getattr(client, 'phone', None)
+    added_count = 0
+    skipped_count = 0
+    
+    for target in targets:
+        target_clean = target.strip()
+        try:
+            entity = await client.get_entity(target_clean)
+            if entity:
+                chat_id = utils.get_peer_id(entity)
+                chat_title = getattr(entity, 'title', None) or target_clean
+                username = getattr(entity, 'username', None)
+                
+                added = await add_group(
+                    user_id=user_id,
+                    chat_id=chat_id,
+                    chat_title=chat_title,
+                    account_phone=phone,
+                    username=username
+                )
+                if added:
+                    added_count += 1
+                else:
+                    skipped_count += 1
+        except Exception:
+            skipped_count += 1
+
+    total_groups = await get_group_count(user_id, phone=phone)
+    result_text = (
+        "📥 **BULK GROUP IMPORT COMPLETE**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"✅ **Added:** {added_count}\n"
+        f"⚠️ **Skipped / Existing:** {skipped_count}\n"
+        f"📊 **Total Target Groups:** {total_groups}"
+    )
+    await status_msg.edit(result_text)
+
+async def handle_restart(client: TelegramClient, user_id: int, message, sender=None):
+    """Handle .restart / .reload command to refresh worker state, ads, and config in real time."""
+    from datetime import datetime
+    if sender:
+        sender.config_cache.clear()
+        sender.ads_updated = True
+        sender.error_streak = 0
+        sender.last_auto_clean_at = datetime.utcnow()
+        sender.wake_up_event.set()
+        
+    result_text = (
+        "🔄 **WORKER REFRESHED**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        "⚡ **Real-time Reload:** Configuration, ads cache, and group queues reloaded successfully!"
+    )
+    await reply_to_command(client, message, result_text, auto_delete=False)
+
+async def handle_clearall(client: TelegramClient, user_id: int, message, sender=None):
+    """Handle .clearall command to safely wipe all Saved Messages ads and all target groups."""
+    from models.group import clear_user_groups
+    
+    # 1. Clear target groups from DB
+    purged_groups = await clear_user_groups(user_id)
+    
+    # 2. Clear Saved Messages ads
+    msg_ids_to_delete = []
+    STATUS_PREFIXES = (".", "✅", "🗑️", "⏳", "❌", "⚠️", "📊", "🔴", "⚪", "●", "📋", "🔄", "📥", "💎")
+    async for old_msg in client.iter_messages('me', limit=200):
+        if old_msg.id == message.id:
+            continue
+        if hasattr(old_msg, 'action') and old_msg.action is not None:
+            continue
+        if old_msg.text:
+            stripped = old_msg.text.strip()
+            if stripped.startswith(STATUS_PREFIXES):
+                continue
+        msg_ids_to_delete.append(old_msg.id)
+        
+    cleared_ads_count = len(msg_ids_to_delete)
+    if msg_ids_to_delete:
+        try:
+            await client.delete_messages('me', msg_ids_to_delete)
+        except Exception:
+            pass
+
+    if sender:
+        sender.ads_updated = True
+        sender.wake_up_event.set()
+
+    result_text = (
+        "🗑️ **TOTAL WIPE COMPLETE**\n"
+        "━━━━━━━━━━━━━━━━━━\n"
+        f"✅ **Cleared Saved Messages Ads:** {cleared_ads_count}\n"
+        f"✅ **Wiped Target Groups:** {purged_groups}"
+    )
+    await reply_to_command(client, message, result_text, auto_delete=False)
 
 async def handle_logs(client: TelegramClient, user_id: int, message):
     """Handle .logs command to show recent activity and progress bar for each account ID."""
