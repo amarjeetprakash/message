@@ -466,24 +466,13 @@ class UserSender:
             self.logger.warning(f"Error in _ensure_default_group_autojoin: {err}")
 
     async def _auto_clean_groups(self):
-        """Auto-run group clean every 24 hours and notify Saved Messages."""
+        """Auto-run group clean every 24 hours silently without sending messages to Saved Messages."""
         try:
             from datetime import datetime
             from models.group import clean_unusable_groups
             purged_count, remaining_active = await clean_unusable_groups(self.user_id, phone=self.phone, client=self.client)
             self.last_auto_clean_at = datetime.utcnow()
             self.logger.info(f"🧹 Auto-cleaned target groups for {self.phone}: {purged_count} purged, {remaining_active} active.")
-            
-            msg_text = (
-                "🧹 **Target Groups Cleaned!**\n"
-                "━━━━━━━━━━━━━━━━━━\n"
-                f"🗑️ **Purged Unusable Groups:** {purged_count}\n"
-                f"✅ **Remaining Active Groups:** {remaining_active}"
-            )
-            try:
-                await self.client.send_message('me', msg_text)
-            except Exception as msg_err:
-                self.logger.warning(f"Could not send auto-clean notification to Saved Messages: {msg_err}")
         except Exception as e:
             self.logger.error(f"Error during auto_clean_groups: {e}")
 

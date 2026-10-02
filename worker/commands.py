@@ -893,7 +893,7 @@ async def handle_clean(client: TelegramClient, user_id: int, message, sender=Non
         f"🗑️ **Purged Unusable Groups:** {purged_count}\n"
         f"✅ **Remaining Active Groups:** {remaining_active}"
     )
-    await reply_to_command(client, message, text, auto_delete=False)
+    await reply_to_command(client, message, text, auto_delete=True, delete_delay=5)
 
 async def handle_exportgroups(client: TelegramClient, user_id: int, message):
     """Handle .export / .exportgroups command to export all target group links."""
