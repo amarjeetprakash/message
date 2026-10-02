@@ -48,14 +48,20 @@ def get_premium_dashboard_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⚙️ Manage Accounts", callback_data="accounts_list"),
         ],
         [
+            InlineKeyboardButton("🧹 Clean Groups", callback_data="clean_groups"),
+            InlineKeyboardButton("⏯️ Pause / Resume", callback_data="toggle_pause_all"),
+        ],
+        [
+            InlineKeyboardButton("📋 Target Groups", callback_data="groups_list"),
+            InlineKeyboardButton("📢 Ad Settings", callback_data="saved_ads"),
+        ],
+        [
             InlineKeyboardButton("🎁 My Plan / Status", callback_data="my_plan"),
+            InlineKeyboardButton("🔄 Toggle Send Mode", callback_data="toggle_send_mode"),
         ],
         [
             InlineKeyboardButton("🧾 Redeem Promo Code", callback_data="redeem_code"),
             InlineKeyboardButton("📘 Commands Map", callback_data="help"),
-        ],
-        [
-            InlineKeyboardButton("🔄 Toggle Send Mode", callback_data="toggle_send_mode"),
         ],
         [
             InlineKeyboardButton("📢 Updates Logs Channel", url=LOG_CHANNEL_URL),
@@ -75,13 +81,19 @@ def get_free_dashboard_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("⚙️ Manage Accounts", callback_data="accounts_list"),
         ],
         [
-            InlineKeyboardButton("💎 Upgrade to Premium", callback_data="my_plan"),
+            InlineKeyboardButton("🧹 Clean Groups", callback_data="clean_groups"),
+            InlineKeyboardButton("⏯️ Pause / Resume", callback_data="toggle_pause_all"),
         ],
         [
-            InlineKeyboardButton("🧾 Redeem Promo Code", callback_data="redeem_code"),
+            InlineKeyboardButton("📋 Target Groups", callback_data="groups_list"),
+            InlineKeyboardButton("📢 Ad Settings", callback_data="saved_ads"),
+        ],
+        [
+            InlineKeyboardButton("💎 Upgrade to Premium", callback_data="my_plan"),
             InlineKeyboardButton("📘 Commands Map", callback_data="help"),
         ],
         [
+            InlineKeyboardButton("🧾 Redeem Promo Code", callback_data="redeem_code"),
             InlineKeyboardButton("📢 Updates Logs Channel", url=LOG_CHANNEL_URL),
         ],
         [

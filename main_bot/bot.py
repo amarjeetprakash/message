@@ -27,6 +27,10 @@ from main_bot.handlers.dashboard import (
     dashboard_callback,
     add_account_callback,
     toggle_send_mode_callback,
+    clean_groups_callback,
+    toggle_pause_all_callback,
+    groups_list_callback,
+    saved_ads_callback,
 )
 from main_bot.handlers.plans import my_plan_callback, buy_plan_callback
 from main_bot.handlers.redeem import (
@@ -171,6 +175,10 @@ def create_application() -> Application:
         ("^check_channel_join$", check_channel_join_callback, False),
         ("^dashboard$", dashboard_callback, False),
         ("^toggle_send_mode$", toggle_send_mode_callback, True),
+        ("^clean_groups$", clean_groups_callback, False),
+        ("^toggle_pause_all$", toggle_pause_all_callback, False),
+        ("^groups_list$", groups_list_callback, False),
+        ("^saved_ads$", saved_ads_callback, False),
         ("^add_account$", add_account_callback, False),
         ("^help$", help_callback, False),
         ("^my_plan$", my_plan_callback, False),

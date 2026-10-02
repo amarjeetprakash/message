@@ -279,3 +279,87 @@ async def toggle_send_mode_callback(update: Update, context: ContextTypes.DEFAUL
     # Refresh dashboard
     await query.answer(f"Send Mode changed to: {next_mode.title()}")
     await show_dashboard(update, context)
+
+
+async def clean_groups_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Clean Groups button click."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    
+    from models.group import clean_unusable_groups
+    purged_count, remaining_active = await clean_unusable_groups(user_id)
+    
+    await query.answer(
+        f"🧹 Cleaned! Purged: {purged_count} | Active: {remaining_active}",
+        show_alert=True
+    )
+    await show_dashboard(update, context)
+
+
+async def toggle_pause_all_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Pause / Resume All button click."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    
+    from models.group import get_user_groups, pause_user_groups, resume_user_groups
+    groups = await get_user_groups(user_id)
+    if not groups:
+        await query.answer("⚪ No groups found to pause or resume.", show_alert=True)
+        return
+        
+    active_count = len([g for g in groups if g.get("enabled", True)])
+    if active_count > 0:
+        count = await pause_user_groups(user_id)
+        await query.answer(f"🔴 Paused all {count} active group(s).", show_alert=True)
+    else:
+        count = await resume_user_groups(user_id)
+        await query.answer(f"🟢 Resumed {count} group(s).", show_alert=True)
+        
+    await show_dashboard(update, context)
+
+
+async def groups_list_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Target Groups list display."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    await query.answer()
+    
+    from models.group import get_user_groups
+    groups = await get_user_groups(user_id)
+    
+    if not groups:
+        text = "📋 *TARGET GROUPS LIST*\n━━━━━━━━━━━━━━━━━━\n\n⚪ No groups added yet.\n💡 Use `.addgroup [url]` in Saved Messages to add groups!"
+    else:
+        lines = ["📋 *TARGET GROUPS LIST*", "━━━━━━━━━━━━━━━━━━"]
+        for idx, g in enumerate(groups[:30], 1):
+            title = escape_markdown(g.get("chat_title", "Group"))
+            status = "🟢" if g.get("enabled", True) else "🔴"
+            phone = g.get("account_phone", "Account")
+            lines.append(f"{idx}. {status} *{title}* (`{phone}`)")
+            
+        if len(groups) > 30:
+            lines.append(f"\n... and {len(groups) - 30} more groups.")
+        lines.append(f"\n📊 Total: {len(groups)} groups")
+        text = "\n".join(lines)
+        
+    from main_bot.utils.keyboards import get_back_home_keyboard
+    from shared.utils import safe_reply
+    await safe_reply(update, text, reply_markup=get_back_home_keyboard())
+
+
+async def saved_ads_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle Saved Ads preview."""
+    query = update.callback_query
+    await query.answer()
+    
+    from core.config import DEFAULT_AD_MESSAGE
+    text = f"""📢 *SAVED ADS PREVIEW*
+━━━━━━━━━━━━━━━━━━
+
+{DEFAULT_AD_MESSAGE}
+
+💡 *TIP:* Send `.setads <your message>` in Saved Messages to change your ad text or media!
+"""
+    from main_bot.utils.keyboards import get_back_home_keyboard
+    from shared.utils import safe_reply
+    await safe_reply(update, text, reply_markup=get_back_home_keyboard())
