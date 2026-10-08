@@ -57,7 +57,6 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
         ("send_logs", [("user_id", 1), ("phone", 1), ("chat_id", 1), ("saved_msg_id", 1), ("sent_at", -1)], {"name": "idx_anti_duplicate"}),
         ("send_logs", [("user_id", 1), ("status", 1), ("sent_at", -1)], {"name": "idx_send_logs_status"}),
         ("send_logs", [("user_id", 1), ("sent_at", -1)], {}),
-        ("send_logs", "sent_at", {}),
         # TTL Index: Automatically delete logs after 30 days (2,592,000 seconds)
         ("send_logs", "sent_at", {"name": "idx_logs_ttl", "expireAfterSeconds": 2592000}),
     ]
@@ -79,15 +78,11 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
             existing_indexes = await collection.index_information()
             
             if name in existing_indexes:
-                # Index exists. Check if specs match to avoid future conflicts
                 existing_spec = existing_indexes[name]
-                # MongoDB returns keys as a list of lists/tuples depending on driver
-                # Simple check for 'unique' flag suffices for most conflicts
                 if options.get("unique") and not existing_spec.get("unique"):
                     logger.warning(f"Index {name} on {coll_name} exists but is NOT unique. Recreating...")
                     await collection.drop_index(name)
                 else:
-                    # Logic is safe, skip creation
                     continue
 
             # 3. Create index
@@ -97,12 +92,18 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
         except OperationFailure as e:
             # Handle the specific conflict error gracefully
             if "already exists with different options" in str(e) or e.code == 85:
-                logger.warning(f"Index options conflict on {coll_name}. Dropping and recreating...")
+                logger.warning(f"Index options conflict on {coll_name} for key {keys}. Resolving...")
                 try:
+                    # Drop any existing index on this key
+                    if isinstance(keys, str):
+                        await collection.drop_index(f"{keys}_1")
                     await collection.drop_index(name)
+                except Exception:
+                    pass
+                try:
                     await collection.create_index(keys, **options)
                 except Exception as inner_e:
-                    logger.error(f"Failed to resolve index conflict on {coll_name}: {inner_e}")
+                    logger.warning(f"Note on resolving index conflict on {coll_name}: {inner_e}")
             else:
                 logger.error(f"OperationFailure creating index on {coll_name}: {e}")
         except Exception as e:
