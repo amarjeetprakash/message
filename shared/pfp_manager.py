@@ -135,6 +135,19 @@ async def set_all_connected_sessions_pfp() -> Dict[str, int]:
         if not session_str:
             results["failed"] += 1
             continue
+
+        # Skip Paid Premium users: premium users are allowed to choose and keep their own custom PFP
+        from models.plan import get_plan, is_plan_active
+        from core.config import OWNER_ID
+        user_plan = await get_plan(user_id)
+        plan_type = (user_plan.get("plan_type") or "").lower() if user_plan else ""
+        is_paid_upgrade = (
+            user_id == OWNER_ID or
+            (await is_plan_active(user_id) and plan_type and not any(k in plan_type for k in ("free", "trial")))
+        )
+        if is_paid_upgrade:
+            logger.info(f"Skipping bulk promo PFP update for paid premium user {user_id} ({phone})")
+            continue
         
         # Each session stores its own API credentials
         api_id = s_doc.get("api_id")

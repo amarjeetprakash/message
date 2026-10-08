@@ -385,4 +385,8 @@ def build_progress_bar_report(user_label: str, send_mode: str, index: int, total
     return text
 
 
+from shared.utils import is_system_or_command_message, normalize_text_for_filter
+
+
+
 

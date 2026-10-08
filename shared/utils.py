@@ -168,3 +168,90 @@ def make_progress_bar(current: int, total: int, length: int = 10) -> str:
     bar = '█' * filled + '░' * (length - filled)
     return f"[{bar}] {percent}%"
 
+
+REVERSE_SMALL_CAPS_MAP = {
+    'ᴀ': 'a', 'ʙ': 'b', 'ᴄ': 'c', 'ᴅ': 'd', 'ᴇ': 'e',
+    'ꜰ': 'f', 'ɢ': 'g', 'ʜ': 'h', 'ɪ': 'i', 'ᴊ': 'j',
+    'ᴋ': 'k', 'ʟ': 'l', 'ᴍ': 'm', 'ɴ': 'n', 'ᴏ': 'o',
+    'ᴘ': 'p', 'ǫ': 'q', 'ʀ': 'r', 'ꜱ': 's', 'ᴛ': 't',
+    'ᴜ': 'u', 'ᴠ': 'v', 'ᴡ': 'w', 'x': 'x', 'ʏ': 'y',
+    'ᴢ': 'z'
+}
+
+_REVERSE_SMALL_CAPS_TRANS = str.maketrans(REVERSE_SMALL_CAPS_MAP)
+
+def normalize_text_for_filter(text: str) -> str:
+    """Normalize text by mapping small-caps unicode characters back to standard ASCII lowercase with C-speed str.translate."""
+    if not text:
+        return ""
+    return text.lower().translate(_REVERSE_SMALL_CAPS_TRANS)
+
+
+def is_system_or_command_message(msg) -> bool:
+    """
+    Check if a message is a system notification, bot response, command, or report
+    that must never be treated as an advertising message.
+    """
+    if not msg:
+        return False
+        
+    # Service messages (e.g. pinned message, join/leave, call notifications)
+    if hasattr(msg, 'action') and msg.action is not None:
+        return True
+        
+    text = (getattr(msg, 'text', None) or "").strip()
+    if not text:
+        # If there is no text and no media, it's not a valid ad
+        return not bool(getattr(msg, 'media', None))
+        
+    # Known status/command prefix characters & emojis
+    SYSTEM_PREFIXES = (
+        ".", "/", "!", "#",
+        "✅", "🗑️", "🗑", "🧹", "⏳", "❌", "⚠️", "⚠",
+        "📊", "🔴", "⚪", "●", "📋", "🔄", "📥", "💎",
+        "📢", "🖼", "🖼️", "👥", "🟢", "🔎", "🔍", "🩺",
+        "⚙️", "⚙", "🔒", "⛔", "ℹ️", "ℹ", "💡"
+    )
+    if text.startswith(SYSTEM_PREFIXES):
+        return True
+        
+    # Check normalized text for known status/system phrases
+    normalized = normalize_text_for_filter(text)
+    
+    SYSTEM_PHRASES = (
+        "target groups cleaned",
+        "purged unusable groups",
+        "remaining active groups",
+        "target groups export",
+        "target groups list",
+        "target groups -",
+        "free version paused",
+        "remain joined",
+        "folder limit reached",
+        "group health",
+        "send check",
+        "saved messages summary",
+        "profile photo updated",
+        "bulk profile photo update",
+        "total wipe complete",
+        "account health weak",
+        "pong! worker is active",
+        "cleared saved messages ads",
+        "wiped target groups",
+        "setting new ad in saved messages",
+        "kurup ads",
+        "spinify ads",
+        "pfp pool empty",
+        "access denied",
+        "premium feature",
+        "removing specified ad",
+        "fetching saved messages details",
+    )
+    
+    for phrase in SYSTEM_PHRASES:
+        if phrase in normalized:
+            return True
+            
+    return False
+
+

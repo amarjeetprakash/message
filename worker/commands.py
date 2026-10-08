@@ -1003,16 +1003,12 @@ async def handle_clearall(client: TelegramClient, user_id: int, message, sender=
     
     # 2. Clear Saved Messages ads
     msg_ids_to_delete = []
-    STATUS_PREFIXES = (".", "✅", "🗑️", "⏳", "❌", "⚠️", "📊", "🔴", "⚪", "●", "📋", "🔄", "📥", "💎")
+    from shared.utils import is_system_or_command_message
     async for old_msg in client.iter_messages('me', limit=200):
         if old_msg.id == message.id:
             continue
-        if hasattr(old_msg, 'action') and old_msg.action is not None:
+        if is_system_or_command_message(old_msg):
             continue
-        if old_msg.text:
-            stripped = old_msg.text.strip()
-            if stripped.startswith(STATUS_PREFIXES):
-                continue
         msg_ids_to_delete.append(old_msg.id)
         
     cleared_ads_count = len(msg_ids_to_delete)
@@ -2321,19 +2317,11 @@ async def handle_setads(client: TelegramClient, user_id: int, message, sender=No
     try:
         # First, clear existing ad messages from Saved Messages so old ads are not kept
         msg_ids_to_delete = []
-        STATUS_PREFIXES = (".", "✅", "🗑️", "⏳", "❌", "⚠️", "📊", "🔴", "⚪", "●", "📋")
+        from shared.utils import is_system_or_command_message
         async for old_msg in client.iter_messages('me', limit=200):
             if old_msg.id == message.id or old_msg.id == status_msg.id:
                 continue
-            if old_msg.text:
-                stripped = old_msg.text.strip()
-                if (stripped.startswith(STATUS_PREFIXES) or 
-                    "Free Version Paused" in stripped or 
-                    "remain joined" in stripped):
-                    continue
-            if hasattr(old_msg, 'action') and old_msg.action is not None:
-                continue
-            if not old_msg.text and not old_msg.media:
+            if is_system_or_command_message(old_msg):
                 continue
             msg_ids_to_delete.append(old_msg.id)
 
@@ -2717,19 +2705,11 @@ async def handle_show(client: TelegramClient, user_id: int, message):
         raw_count = 0
         ads = []
         
-        STATUS_PREFIXES = (".", "✅", "🗑️", "⏳", "❌", "⚠️", "📊", "🔴", "⚪", "●", "📋")
+        from shared.utils import is_system_or_command_message
         async for msg in client.iter_messages('me', limit=1000):
             raw_count += 1
             # Filter like get_all_saved_messages
-            if msg.text:
-                stripped = msg.text.strip()
-                if (stripped.startswith(STATUS_PREFIXES) or 
-                    "Free Version Paused" in stripped or 
-                    "remain joined" in stripped):
-                    continue
-            if hasattr(msg, 'action') and msg.action is not None:
-                continue
-            if not msg.text and not msg.media:
+            if is_system_or_command_message(msg):
                 continue
             ads.append(msg)
             
@@ -2779,7 +2759,7 @@ async def handle_setpfp(client: TelegramClient, user_id: int, message):
     """
     from shared.pfp_manager import set_client_profile_photo, save_profile_photo, get_profile_photos
     
-    status_msg = await reply_to_command(client, message, "⏳ **Updating profile photo...**", auto_delete=False)
+    status_msg = await reply_to_command(client, message, "⏳ **Updating profile photo...**", auto_delete=True, delete_delay=15)
     photo_path = None
     
     # Check if message itself has photo or is a reply to a message with photo

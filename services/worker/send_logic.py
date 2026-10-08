@@ -177,6 +177,11 @@ async def send_message_to_group(
                                 "failed", "Message not found in Saved Messages")
             return ("failed", 0)
 
+        from shared.utils import is_system_or_command_message
+        if is_system_or_command_message(saved_msg):
+            logger.warning(f"Safeguard triggered: prevented system/status message {message_id} from being sent to group {group_id}")
+            return ("failed", 0)
+
         if not saved_msg.text and not saved_msg.media:
             await log_job_event(job_id, user_id, phone, group_id, message_id,
                                 "skipped", "Empty message")

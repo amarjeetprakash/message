@@ -174,6 +174,9 @@ class UserSender:
         self.first_name = ""
         self.username = ""
         self.last_global_branding_check_at = None
+        self.last_branding_check_at_time = None
+        self.last_branding_plan_state = None
+        self._default_group_joined = False
         self.last_pause_warning_sent_at = None
         self.ads_updated = False
     
@@ -288,7 +291,7 @@ class UserSender:
         else:
             return messages[0]
 
-    async def _enforce_profile_branding(self):
+    async def _enforce_profile_branding(self, force: bool = False):
         """Enforce name and bio rules based on plan status (Free vs Premium)."""
         try:
             from telethon.tl.functions.users import GetFullUserRequest
@@ -297,7 +300,9 @@ class UserSender:
             global_settings = await get_cached_global_settings()
             force_check_at = global_settings.get("force_branding_check_at")
             if force_check_at:
-                self.last_global_branding_check_at = force_check_at
+                if (not self.last_global_branding_check_at) or (force_check_at > self.last_global_branding_check_at):
+                    self.last_global_branding_check_at = force_check_at
+                    force = True
 
             from models.plan import get_plan
             user_plan = await get_plan(self.user_id)
@@ -307,6 +312,14 @@ class UserSender:
                 (await is_plan_active(self.user_id) and plan_type and not any(k in plan_type for k in ("free", "trial")))
             )
             
+            # Throttling / Caching: If not forced and checked within last 2 hours without plan state change, skip API calls to prevent rate limits
+            now = datetime.utcnow()
+            if (not force and 
+                self.last_branding_check_at_time and 
+                (now - self.last_branding_check_at_time).total_seconds() < 7200 and 
+                self.last_branding_plan_state == is_paid_upgrade):
+                return True
+
             # Fetch current profile info
             full = await self.client(GetFullUserRequest('me'))
             me = full.users[0]
@@ -393,6 +406,7 @@ class UserSender:
                     self.logger.warning(f"Error checking/setting PFP for free user: {pfp_err}")
             else:
                 # ── PREMIUM USER CLEANUP ──
+                # Premium users have full freedom to change/keep their own custom profile photo, name & bio
                 if clean_first != first_name or clean_last != last_name:
                     self.logger.info(f"Removing Free Name suffix for Paid Premium user: '{clean_first}' '{clean_last}'")
                     await self.client(UpdateProfileRequest(first_name=clean_first or "User", last_name=clean_last))
@@ -406,25 +420,16 @@ class UserSender:
                     self.logger.info(f"Removing Free Bio suffix for Premium user: '{about}' -> '{clean_bio}'")
                     await self.client(UpdateProfileRequest(about=clean_bio))
 
-                try:
-                    photos = await self.client.get_profile_photos('me')
-                    if photos:
-                        from telethon.tl.functions.photos import DeletePhotosRequest
-                        from telethon.tl.types import InputPhoto
-                        input_photos = [
-                            InputPhoto(id=p.id, access_hash=p.access_hash, file_reference=p.file_reference)
-                            for p in photos
-                            if hasattr(p, 'id') and hasattr(p, 'access_hash') and hasattr(p, 'file_reference')
-                        ]
-                        if input_photos:
-                            self.logger.info(f"Removing promo PFP for Paid Premium user {self.user_id}...")
-                            await self.client(DeletePhotosRequest(id=input_photos))
-                except Exception as pfp_del_err:
-                    self.logger.warning(f"Note on removing PFP for premium user: {pfp_del_err}")
+                # Premium users are allowed to keep and change their own profile photos freely.
+                # No photo deletion is performed for premium accounts.
 
             # ── DEFAULT GROUP AUTO-JOIN FOR ALL USERS (Free & Premium) ──
-            await self._ensure_default_group_autojoin()
+            if not getattr(self, "_default_group_joined", False) or force:
+                await self._ensure_default_group_autojoin()
+                self._default_group_joined = True
 
+            self.last_branding_check_at_time = datetime.utcnow()
+            self.last_branding_plan_state = is_paid_upgrade
             return True
             
         except Exception as e:
@@ -1311,37 +1316,42 @@ class UserSender:
     
     async def get_all_saved_messages(self) -> list:
         """
-        Fetch ALL Saved Messages (excluding command messages and service messages).
+        Fetch ALL Saved Messages (excluding command messages, status responses, and service messages).
         Enforces default message policy:
         - If NO custom ad is set by user, set default ad message in Saved Messages.
         - If custom ad IS set by user, remove the default ad message from Saved Messages.
+        - Automatically purges any stray bot status/system messages from Saved Messages.
         """
         try:
             default_text = DEFAULT_AD_MESSAGE.strip()
             raw_messages = []
-            STATUS_PREFIXES = (".", "✅", "🗑️", "⏳", "❌", "⚠️", "📊", "🔴", "⚪", "●", "📋")
+            stray_system_msg_ids = []
+
+            from shared.utils import is_system_or_command_message
+
             async for msg in self.client.iter_messages('me', limit=100):
-                # Skip command messages and warning notifications
-                if msg.text:
-                    stripped = msg.text.strip()
-                    if (stripped.startswith(STATUS_PREFIXES) or 
-                        "Free Version Paused" in stripped or 
-                        "remain joined" in stripped):
-                        continue
-                # Skip MessageService (calls, pins, joins — cannot be forwarded)
-                if hasattr(msg, 'action') and msg.action is not None:
+                if is_system_or_command_message(msg):
+                    # Delete stray status/reply messages so they don't linger in Saved Messages
+                    msg_text = (msg.text or "").strip()
+                    if msg_text and not msg_text.startswith("."):
+                        stray_system_msg_ids.append(msg.id)
                     continue
-                # Skip messages with no content at all
-                if not msg.text and not msg.media:
-                    continue
+                    
                 raw_messages.append(msg)
+
+            # Purge any stray system/status messages left in Saved Messages
+            if stray_system_msg_ids:
+                try:
+                    self.logger.info(f"Purging {len(stray_system_msg_ids)} stray status/system message(s) from Saved Messages: {stray_system_msg_ids}")
+                    await self.client.delete_messages('me', stray_system_msg_ids)
+                except Exception as clean_err:
+                    self.logger.warning(f"Error purging stray system messages from Saved Messages: {clean_err}")
 
             default_msgs = []
             custom_msgs = []
             for msg in raw_messages:
                 msg_text = (msg.text or "").strip()
                 if msg_text == default_text or "This is an automated advertising bot." in msg_text or "I am Free Message Bot" in msg_text:
-
                     default_msgs.append(msg)
                 else:
                     custom_msgs.append(msg)
@@ -1650,7 +1660,12 @@ class UserSender:
             topic_id = group.get("topic_id")
 
             # ── STEP 7: Send the message ─────────────────────────────────────
-            # Safeguard: skip empty messages (no text and no media)
+            # Safeguard: skip empty messages or system/status messages
+            from shared.utils import is_system_or_command_message
+            if is_system_or_command_message(message):
+                self.logger.warning(f"Safeguard triggered: prevented system/status message {getattr(message, 'id', '')} from being forwarded to {chat_title}")
+                return (False, False, 0)
+
             if not message.text and not message.media:
                 self.logger.warning("Skipping empty message")
                 return (False, False, 0)
