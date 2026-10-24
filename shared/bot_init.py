@@ -78,12 +78,11 @@ async def run_bot_gracefully(application: Application, bot_name: str):
             pass
 
     try:
-        async with application:
-            await application.initialize()
-            await application.start()
-            await application.updater.start_polling(drop_pending_updates=True)
-            
-            logger.info(f"{bot_name} is running (Async Polling)...")
+        await application.initialize()
+        await application.start()
+        await application.updater.start_polling(drop_pending_updates=True)
+        
+        logger.info(f"{bot_name} is running (Async Polling)...")
         
         # Send starting log to central logs channel
         try:
@@ -104,12 +103,26 @@ async def run_bot_gracefully(application: Application, bot_name: str):
         
         # Wait for shutdown signal
         await stop_event.wait()
-        
-        logger.info(f"{bot_name} is stopping...")
-        await application.updater.stop()
-        await application.stop()
+        logger.info(f"{bot_name} shutdown signal received...")
     except InvalidToken:
         logger.error(f"❌ Fatal: Invalid or revoked bot token for {bot_name}.")
         logger.error("👉 Please update your bot token in .env with a valid token from @BotFather in Telegram.")
     except Exception as e:
         logger.error(f"❌ Fatal error while running {bot_name}: {e}")
+    finally:
+        try:
+            if application.updater and application.updater.running:
+                await application.updater.stop()
+        except Exception:
+            pass
+        try:
+            if application.running:
+                await application.stop()
+        except Exception:
+            pass
+        try:
+            if getattr(application, "_initialized", False):
+                await application.shutdown()
+        except Exception:
+            pass
+        logger.info(f"{bot_name} stopped cleanly.")
