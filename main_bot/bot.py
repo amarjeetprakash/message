@@ -135,6 +135,7 @@ def create_application() -> Application:
         ],
         per_user=True,
         per_chat=True,
+        per_message=False,
     )
     application.add_handler(redeem_conv)
 
@@ -151,6 +152,7 @@ def create_application() -> Application:
         ],
         per_user=True,
         per_chat=True,
+        per_message=False,
     )
     application.add_handler(broadcast_conv)
 
@@ -165,6 +167,7 @@ def create_application() -> Application:
         ],
         per_user=True,
         per_chat=True,
+        per_message=False,
     )
     application.add_handler(upgrade_conv)
 

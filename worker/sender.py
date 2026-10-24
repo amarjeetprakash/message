@@ -1749,6 +1749,7 @@ class UserSender:
                 # Circuit breaker check: if flood wait is over 5 minutes (300 seconds)
                 if seconds > 300:
                     self.logger.error(f"🚨 Long FloodWait ({seconds}s) on {chat_title} — activating circuit breaker.")
+                    self.running = False
                     cooldown_until = datetime.utcnow() + timedelta(seconds=int(seconds * 1.1) + 5)
                     asyncio.create_task(self._activate_circuit_breaker(cooldown_until, f"FloodWait ({seconds}s)"))
                     # Auto-appeal to SpamBot for long flood waits
@@ -1758,6 +1759,7 @@ class UserSender:
                 return (False, True, int(seconds * 1.1) + 5)
                 
             elif err_code == "PEER_FLOOD":
+                self.running = False
                 self.error_streak += 1
                 self._peer_flood_count += 1
                 cooldown_hours = min(2 ** (self._peer_flood_count - 1), 8)
@@ -1803,7 +1805,7 @@ class UserSender:
                 asyncio.create_task(self.log_send(chat_id, message.id, "skipped", disp_msg))
                 return (False, False, 0)
 
-            elif err_code in ["LINK_INVALID", "PERMISSION_DENIED"]:
+            elif err_code in ["LINK_INVALID", "PERMISSION_DENIED", "ENTITY_NOT_FOUND"]:
                 self.logger.warning(f"❌ Removing group {chat_title}: {disp_msg} ({err_code})")
                 asyncio.create_task(remove_group(self.user_id, chat_id))
                 asyncio.create_task(self.log_send(chat_id, message.id, "removed", disp_msg))

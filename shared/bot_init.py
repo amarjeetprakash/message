@@ -17,7 +17,12 @@ def setup_logging():
         level=logging.INFO,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    import warnings
+    from telegram.warnings import PTBUserWarning
+    warnings.filterwarnings("ignore", category=PTBUserWarning)
     return logging.getLogger("bot")
+
+from telegram.error import InvalidToken
 
 def create_base_application(token: str) -> Application:
     """Create and configure the bot application with standard timeouts and disabled SSL verification."""
@@ -56,7 +61,12 @@ async def run_bot_gracefully(application: Application, bot_name: str):
     logger = logging.getLogger(bot_name)
     
     # Initialize database
-    await init_database()
+    try:
+        await init_database()
+    except Exception as db_err:
+        logger.error(f"❌ Database initialization failed: {db_err}")
+        logger.error("👉 Please verify your MONGODB_URI credentials in .env")
+        return
 
     # Setup stop event for graceful shutdown
     stop_event = asyncio.Event()
@@ -67,12 +77,13 @@ async def run_bot_gracefully(application: Application, bot_name: str):
         except NotImplementedError:
             pass
 
-    async with application:
-        await application.initialize()
-        await application.start()
-        await application.updater.start_polling(drop_pending_updates=True)
-        
-        logger.info(f"{bot_name} is running (Async Polling)...")
+    try:
+        async with application:
+            await application.initialize()
+            await application.start()
+            await application.updater.start_polling(drop_pending_updates=True)
+            
+            logger.info(f"{bot_name} is running (Async Polling)...")
         
         # Send starting log to central logs channel
         try:
@@ -97,3 +108,8 @@ async def run_bot_gracefully(application: Application, bot_name: str):
         logger.info(f"{bot_name} is stopping...")
         await application.updater.stop()
         await application.stop()
+    except InvalidToken:
+        logger.error(f"❌ Fatal: Invalid or revoked bot token for {bot_name}.")
+        logger.error("👉 Please update your bot token in .env with a valid token from @BotFather in Telegram.")
+    except Exception as e:
+        logger.error(f"❌ Fatal error while running {bot_name}: {e}")

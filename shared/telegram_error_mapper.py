@@ -74,7 +74,16 @@ def map_telegram_error(e: Exception) -> dict:
             "retryable": False
         }
 
-    # 5. RPCError string matching
+    # 5. Entity resolution errors (Telethon raises ValueError or RPCError when entity can't be resolved)
+    if "COULD NOT FIND THE INPUT ENTITY" in error_str or "INPUT ENTITY NOT FOUND" in error_str:
+        return {
+            "error_code": "ENTITY_NOT_FOUND",
+            "display_message": "Could not locate group. Try re-adding it.",
+            "severity": "error",
+            "retryable": False
+        }
+
+    # 6. RPCError string matching
     if isinstance(e, RPCError):
         if "MESSAGE_ID_INVALID" in error_str or "OPERATION ON SUCH MESSAGE" in error_str or "FILE_REFERENCE_EXPIRED" in error_str:
             return {
@@ -88,13 +97,6 @@ def map_telegram_error(e: Exception) -> dict:
                 "error_code": "TOPIC_CLOSED",
                 "display_message": "Group topic is closed.",
                 "severity": "warning",
-                "retryable": False
-            }
-        if "INPUT ENTITY NOT FOUND" in error_str:
-            return {
-                "error_code": "ENTITY_NOT_FOUND",
-                "display_message": "Could not locate group. Try re-adding it.",
-                "severity": "error",
                 "retryable": False
             }
         if "JOIN DISCUSSION GROUP" in error_str or "DISCUSSION_GROUP" in error_str:

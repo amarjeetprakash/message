@@ -44,6 +44,9 @@ async def init_database() -> AsyncIOMotorDatabase:
     """Initialize database connection and ensure all indexes exist."""
     database = get_database()
     
+    # Fast connectivity & authentication check before attempting index synchronization
+    await database.command("ping")
+    
     # Run idempotent index synchronization
     from .indexes import ensure_indexes
     await ensure_indexes(database)

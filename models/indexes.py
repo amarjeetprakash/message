@@ -16,6 +16,16 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
     """Idempotent index creation for all collections."""
     logger.info("Synchronizing database indexes...")
 
+    # Cleanup legacy non-compound unique indexes on groups to prevent findAndModify E11000 conflicts
+    try:
+        existing_g_indexes = await db.groups.index_information()
+        for legacy_name in ["user_id_1_chat_id_1", "chat_id_1"]:
+            if legacy_name in existing_g_indexes:
+                logger.info(f"Dropping legacy index {legacy_name} from groups collection...")
+                await db.groups.drop_index(legacy_name)
+    except Exception as legacy_err:
+        logger.warning(f"Note on dropping legacy group index: {legacy_err}")
+
     index_definitions = [
         # ── Users ───────────────────────────────────────────────────────
         ("users", "user_id", {"unique": True}),
@@ -30,7 +40,7 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
         ("config", "user_id", {"unique": True}),
 
         # ── Groups ──────────────────────────────────────────────────────
-        ("groups", [("user_id", 1), ("chat_id", 1)], {"unique": True}),
+        ("groups", [("user_id", 1), ("account_phone", 1), ("chat_id", 1)], {"name": "idx_groups_user_phone_chat", "sparse": True}),
         ("groups", [("user_id", 1), ("enabled", 1)], {"name": "idx_groups_user_enabled"}),
         ("groups", "user_id", {}),
         ("groups", "account_phone", {}),

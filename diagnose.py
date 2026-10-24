@@ -53,21 +53,46 @@ async def main():
     if not mongo_uri:
         print("❌ MONGODB_URI is missing!")
         
-    # 4. Check Telegram Bot API Connection
-    print("\n--- Testing Telegram Bot API Connection ---")
+    # 4. Check Telegram Bot API Connection (Main Bot)
+    print("\n--- Testing Main Bot API Connection ---")
     try:
         from shared.bot_init import create_base_bot
         bot = create_base_bot(token)
         me = await bot.get_me()
-        print(f"✅ Bot Connection Successful!")
+        print(f"✅ Main Bot Connection Successful!")
         print(f"   Username: @{me.username}")
         print(f"   ID: {me.id}")
     except Exception as e:
-        print("❌ Telegram Bot connection failed:")
-        traceback.print_exc()
+        print("❌ Main Bot connection failed:")
+        if "Unauthorized" in str(e) or "InvalidToken" in type(e).__name__:
+            print("   👉 Error: Telegram returned 401 Unauthorized. The MAIN_BOT_TOKEN is revoked or invalid.")
+            print("   👉 Fix: Get a new token from @BotFather in Telegram and update MAIN_BOT_TOKEN in .env")
+        else:
+            traceback.print_exc()
         bot = None
 
-    # 5. Check Log Channel Messaging
+    # 5. Check Telegram Bot API Connection (Login Bot)
+    login_token = os.getenv("LOGIN_BOT_TOKEN", "")
+    print("\n--- Testing Login Bot API Connection ---")
+    if not login_token:
+        print("❌ LOGIN_BOT_TOKEN is missing!")
+    else:
+        try:
+            from shared.bot_init import create_base_bot
+            login_bot = create_base_bot(login_token)
+            login_me = await login_bot.get_me()
+            print(f"✅ Login Bot Connection Successful!")
+            print(f"   Username: @{login_me.username}")
+            print(f"   ID: {login_me.id}")
+        except Exception as e:
+            print("❌ Login Bot connection failed:")
+            if "Unauthorized" in str(e) or "InvalidToken" in type(e).__name__:
+                print("   👉 Error: Telegram returned 401 Unauthorized. The LOGIN_BOT_TOKEN is revoked or invalid.")
+                print("   👉 Fix: Get a new token from @BotFather in Telegram and update LOGIN_BOT_TOKEN in .env")
+            else:
+                traceback.print_exc()
+
+    # 6. Check Log Channel Messaging
     if bot and log_channel:
         print("\n--- Testing Log Channel Messaging ---")
         try:
@@ -84,7 +109,7 @@ async def main():
             traceback.print_exc()
             print("\n💡 Tip: Make sure the bot is an ADMINISTRATOR in the channel with Post Messages permission.")
 
-    # 6. Check MongoDB Connection
+    # 7. Check MongoDB Connection
     print("\n--- Testing MongoDB Connection ---")
     try:
         from motor.motor_asyncio import AsyncIOMotorClient
@@ -99,7 +124,27 @@ async def main():
         print("✅ MongoDB Connection Successful!")
     except Exception as e:
         print("❌ MongoDB Connection Failed:")
-        traceback.print_exc()
+        if "authentication failed" in str(e).lower():
+            print("   👉 Error: MongoDB authentication failed (bad auth).")
+            print("   👉 Fix: Check the username and password in MONGODB_URI in your .env file or MongoDB Atlas Database Access settings.")
+        else:
+            traceback.print_exc()
+
+    # 8. Check Redis Connection
+    redis_url = os.getenv("REDIS_URL", "")
+    print(f"\n--- Testing Redis Connection ({redis_url[:30]}...) ---")
+    if not redis_url:
+        print("⚠️ REDIS_URL not set in .env (Redis caching will be bypassed).")
+    else:
+        try:
+            import redis.asyncio as aioredis
+            r = aioredis.from_url(redis_url, socket_timeout=5)
+            await r.ping()
+            await r.aclose()
+            print("✅ Redis Connection Successful!")
+        except Exception as e:
+            print(f"⚠️ Redis Connection Failed: {e}")
+            print("   👉 Note: The bot has a circuit breaker for Redis outages, but real-time caching is disabled until fixed.")
 
     print("=" * 60)
 

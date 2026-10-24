@@ -66,7 +66,12 @@ class WorkerManager:
         logger.info("Worker Manager starting...")
         
         # Initialize database and indexes
-        await init_database()
+        try:
+            await init_database()
+        except Exception as e:
+            logger.error(f"❌ Database initialization failed in Worker: {e}")
+            logger.error("👉 Please verify your MONGODB_URI credentials in .env")
+            return
         
         # Send starting log to central logs channel
         try:
@@ -318,6 +323,12 @@ class WorkerManager:
     
     async def stop_all(self):
         """Stop all senders."""
+        if hasattr(self, "_lock_socket") and self._lock_socket:
+            try:
+                self._lock_socket.close()
+                self._lock_socket = None
+            except Exception:
+                pass
         if not self.senders:
             return
             

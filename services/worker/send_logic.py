@@ -266,7 +266,7 @@ async def send_message_to_group(
             await log_job_event(job_id, user_id, phone, group_id, message_id, "skipped", disp_msg)
             return ("failed", 0)
 
-        elif err_code in ["LINK_INVALID", "PERMISSION_DENIED"]:
+        elif err_code in ["LINK_INVALID", "PERMISSION_DENIED", "ENTITY_NOT_FOUND"]:
             logger.warning(f"❌ Removing group {group_id} due to permanent permission/link error: {disp_msg} ({err_code})")
             asyncio.create_task(remove_group(user_id, group_id))
             await log_job_event(job_id, user_id, phone, group_id, message_id, "removed", disp_msg)
