@@ -156,6 +156,9 @@ async def process_command(client: TelegramClient, user_id: int, message, sender=
         elif cmd == ".interval":
             await handle_interval(client, user_id, message, text)
             return True
+        elif cmd in (".gap", ".delay"):
+            await handle_gap(client, user_id, message, text, sender)
+            return True
         elif cmd == ".shuffle":
             await handle_shuffle(client, user_id, message, text)
             return True
@@ -231,9 +234,10 @@ async def handle_help(client: TelegramClient, user_id: int, message):
         "└ `.folders` — List your account folders\n\n"
         "⚙️ *WORKER SETTINGS*\n"
         "├ `.interval [min]` — Set loop delay (min: {min}m)\n"
+        "├ `.gap [sec]` — Group & message delays\n"
         "├ `.shuffle on/off` — Randomize loop order\n"
         "├ `.copymode on/off` — Fresh message (No Forward tag)\n"
-        "├ `.sendmode [pattern]` — `seq` | `rot` | `rand` \n"
+        "├ `.sendmode [pattern]` — `cycle` | `seq` | `rot` | `rand` | `smart`\n"
         "├ `.responder [msg]` — Set auto-DM reply\n"
         "├ `.responder off` — Disable auto-DM\n"
         "└ `.nightmode on/off` — 12AM-6AM Automation\n\n"
@@ -329,6 +333,10 @@ async def handle_status(client: TelegramClient, user_id: int, message, text: str
     from core.config import MAX_GROUPS_PER_USER
     groups_bar = make_progress_bar(enabled_groups, total_groups if total_groups > 0 else MAX_GROUPS_PER_USER)
 
+    from config import GROUP_GAP_SECONDS, MESSAGE_GAP_SECONDS
+    group_gap = config.get("group_gap", GROUP_GAP_SECONDS)
+    msg_gap = config.get("message_gap", MESSAGE_GAP_SECONDS)
+
     text = f"""{header}
     
 📱 *ACCOUNT PROFILE*
@@ -341,6 +349,8 @@ async def handle_status(client: TelegramClient, user_id: int, message, text: str
 
 ⚡ *LIVE SETTINGS*
 ├ Interval: {interval}m
+├ Group Gap: {group_gap}s
+├ Message Gap: {msg_gap}s
 ├ Send Mode: {send_mode}
 ├ Shuffle: {"🟢 ON" if config.get("shuffle_mode") else "⚫ OFF"}
 ├ Copy Mode: {"🟢 ON" if config.get("copy_mode") else "⚫ OFF"}
@@ -1129,6 +1139,74 @@ async def handle_interval(client: TelegramClient, user_id: int, message, text: s
     )
 
 
+async def handle_gap(client: TelegramClient, user_id: int, message, text: str, sender=None):
+    """Handle .gap command to view or set group/message delays."""
+    from config import GROUP_GAP_SECONDS, MESSAGE_GAP_SECONDS
+    from models.plan import is_plan_active
+    from core.config import OWNER_ID
+    
+    issuer_id = getattr(message, "sender_id", user_id)
+    is_premium = (user_id == OWNER_ID) or (issuer_id == OWNER_ID) or await is_plan_active(user_id)
+    
+    config = await get_user_config(user_id)
+    current_group_gap = config.get("group_gap", GROUP_GAP_SECONDS)
+    current_msg_gap = config.get("message_gap", MESSAGE_GAP_SECONDS)
+    
+    parts = text.split()
+    if len(parts) < 2:
+        await reply_to_command(client, message,
+            f"⚡ **TIMING GAPS & DELAYS**\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"👥 **Group Gap:** `{current_group_gap}s` (delay between groups)\n"
+            f"✉️ **Message Gap:** `{current_msg_gap}s` (delay between messages)\n\n"
+            f"💡 **Usage:**\n"
+            f"• `.gap <seconds>` — Set group gap (min: 10s)\n"
+            f"• `.gap msg <seconds>` — Set message gap (min: 20s)\n"
+            f"• `.gap group <seconds>` — Set group gap (min: 10s)"
+        )
+        return
+        
+    if not is_premium:
+        await reply_to_command(client, message, "⚠️ **Premium Feature**\nCustom gap adjustment is restricted to Premium users. Upgrade your plan to unlock.")
+        return
+        
+    target_type = "group"
+    val_str = ""
+    if len(parts) == 2:
+        val_str = parts[1]
+    elif len(parts) >= 3:
+        sub = parts[1].lower()
+        if sub in ("msg", "message", "m"):
+            target_type = "msg"
+            val_str = parts[2]
+        else:
+            target_type = "group"
+            val_str = parts[2]
+            
+    try:
+        val = int(val_str)
+    except ValueError:
+        await reply_to_command(client, message, "❌ Please enter a valid number of seconds.")
+        return
+        
+    if target_type == "msg":
+        if val < 20 or val > 600:
+            await reply_to_command(client, message, "❌ Message Gap must be between 20 and 600 seconds.")
+            return
+        await update_user_config(user_id, message_gap=val)
+        if sender and hasattr(sender, "adaptive_msg_gap"):
+            sender.adaptive_msg_gap.base_gap = val
+        await reply_to_command(client, message, f"✅ **Message Gap updated to {val}s!**\nThe worker will wait {val}s between different messages.")
+    else:
+        if val < 10 or val > 300:
+            await reply_to_command(client, message, "❌ Group Gap must be between 10 and 300 seconds.")
+            return
+        await update_user_config(user_id, group_gap=val)
+        if sender and hasattr(sender, "adaptive_group_gap"):
+            sender.adaptive_group_gap.base_gap = val
+        await reply_to_command(client, message, f"✅ **Group Gap updated to {val}s!**\nThe worker will wait {val}s between groups.")
+
+
 async def handle_shuffle(client: TelegramClient, user_id: int, message, text: str):
     """Handle .shuffle on/off command."""
     parts = text.split(maxsplit=1)
@@ -1190,6 +1268,7 @@ async def handle_sendmode(client: TelegramClient, user_id: int, message, text: s
             f"➤ Send Mode: {current.title()}\n\n"
             f"Usage: .sendmode [mode]\n"
             f"Modes:\n"
+            f"  ◦ cycle: 1 ad to all groups per cycle, rotates each interval\n"
             f"  ◦ sequential: Ad 1 to all groups, then Ad 2...\n"
             f"  ◦ rotate: Grp 1 gets Ad 1, Grp 2 gets Ad 2...\n"
             f"  ◦ random: Random ad sent to each group\n"
@@ -1200,6 +1279,8 @@ async def handle_sendmode(client: TelegramClient, user_id: int, message, text: s
     val = parts[1].strip().lower()
     if val in ["seq", "sequential"]:
         val = "sequential"
+    elif val in ["cycle", "loop", "single"]:
+        val = "cycle"
     elif val in ["rot", "rotate"]:
         val = "rotate"
     elif val in ["rand", "random"]:
@@ -1207,7 +1288,7 @@ async def handle_sendmode(client: TelegramClient, user_id: int, message, text: s
     elif val in ["smart", "auto"]:
         val = "smart"
     else:
-        await reply_to_command(client, message, "○ Invalid mode! Choose: sequential, rotate, random, or smart.")
+        await reply_to_command(client, message, "○ Invalid mode! Choose: cycle, sequential, rotate, random, or smart.")
         return
     
     await update_user_config(user_id, send_mode=val)

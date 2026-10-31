@@ -27,6 +27,8 @@ from main_bot.handlers.dashboard import (
     dashboard_callback,
     add_account_callback,
     toggle_send_mode_callback,
+    manage_gaps_callback,
+    set_gap_callback,
     clean_groups_callback,
     toggle_pause_all_callback,
     groups_list_callback,
@@ -173,11 +175,18 @@ def create_application() -> Application:
 
     # ============== Callback Query Handlers ==============
     # (pattern, callback, needs_premium)
+    async def noop_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.callback_query:
+            await update.callback_query.answer()
+
     handlers_config = [
         ("^home$", home_callback, False),
         ("^check_channel_join$", check_channel_join_callback, False),
         ("^dashboard$", dashboard_callback, False),
         ("^toggle_send_mode$", toggle_send_mode_callback, True),
+        ("^manage_gaps$", manage_gaps_callback, True),
+        ("^set_gap:", set_gap_callback, True),
+        ("^noop$", noop_callback, False),
         ("^clean_groups$", clean_groups_callback, False),
         ("^toggle_pause_all$", toggle_pause_all_callback, False),
         ("^groups_list$", groups_list_callback, False),

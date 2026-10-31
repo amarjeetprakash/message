@@ -60,10 +60,11 @@ def get_premium_dashboard_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton("🔄 Toggle Send Mode", callback_data="toggle_send_mode"),
         ],
         [
+            InlineKeyboardButton("⏱️ Delay Gaps", callback_data="manage_gaps"),
             InlineKeyboardButton("🧾 Redeem Promo Code", callback_data="redeem_code"),
-            InlineKeyboardButton("📘 Commands Map", callback_data="help"),
         ],
         [
+            InlineKeyboardButton("📘 Commands Map", callback_data="help"),
             InlineKeyboardButton("📢 Updates Logs Channel", url=LOG_CHANNEL_URL),
         ],
         [
@@ -90,15 +91,48 @@ def get_free_dashboard_keyboard() -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton("💎 Upgrade to Premium", callback_data="my_plan"),
-            InlineKeyboardButton("📘 Commands Map", callback_data="help"),
+            InlineKeyboardButton("⏱️ Delay Gaps", callback_data="manage_gaps"),
         ],
         [
             InlineKeyboardButton("🧾 Redeem Promo Code", callback_data="redeem_code"),
+            InlineKeyboardButton("📘 Commands Map", callback_data="help"),
+        ],
+        [
             InlineKeyboardButton("📢 Updates Logs Channel", url=LOG_CHANNEL_URL),
         ],
         [
             InlineKeyboardButton("🏠 Back to Home", callback_data="home"),
         ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
+def get_manage_gaps_keyboard(group_gap: int = 40, msg_gap: int = 120) -> InlineKeyboardMarkup:
+    """Build keyboard for configuring group and message delay gaps."""
+    group_options = [20, 30, 40, 60]
+    group_row = [
+        InlineKeyboardButton(
+            f"{'✅ ' if g == group_gap else ''}{g}s",
+            callback_data=f"set_gap:group:{g}"
+        )
+        for g in group_options
+    ]
+    
+    msg_options = [60, 120, 180, 240]
+    msg_row = [
+        InlineKeyboardButton(
+            f"{'✅ ' if m == msg_gap else ''}{m}s",
+            callback_data=f"set_gap:msg:{m}"
+        )
+        for m in msg_options
+    ]
+    
+    keyboard = [
+        [InlineKeyboardButton("── 👥 Group Delay Gap ──", callback_data="noop")],
+        group_row,
+        [InlineKeyboardButton("── ✉️ Message Delay Gap ──", callback_data="noop")],
+        msg_row,
+        [InlineKeyboardButton("🏠 Back to Dashboard", callback_data="dashboard")],
     ]
     return InlineKeyboardMarkup(keyboard)
 

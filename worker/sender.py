@@ -782,6 +782,7 @@ class UserSender:
     async def stop(self):
         """Stop the sender safely and cleanly close the connection."""
         self.running = False
+        self.wake_up_event.set()
         if self.client:
             try:
                 # Disconnect politely
@@ -885,6 +886,7 @@ class UserSender:
                 # 0. Fresh config + session activity
                 self.config_cache.clear()
                 self.ads_updated = False
+                self.wake_up_event.clear()
                 self._cycle_start_time = datetime.utcnow()
                 self._cycle_id = int(self._cycle_start_time.timestamp())
                 self._sent_this_cycle.clear()
@@ -954,7 +956,7 @@ class UserSender:
                     continue
                 
                 # 3. Get groups — smart assignment
-                all_raw_groups = await get_user_groups(self.user_id, enabled_only=True, phone=self.phone)
+                all_raw_groups = await get_user_groups(self.user_id, enabled_only=True)
                 
                 my_groups = [g for g in all_raw_groups if g.get("account_phone") == self.phone]
                 other_groups_count = len([g for g in all_raw_groups if g.get("account_phone") and g.get("account_phone") != self.phone])
@@ -984,6 +986,7 @@ class UserSender:
                 if not groups:
                     await self.update_status("Sleeping (No assigned groups)")
                     try:
+                        self.wake_up_event.clear()
                         await asyncio.wait_for(self.wake_up_event.wait(), timeout=60)
                     except asyncio.TimeoutError:
                         pass
@@ -993,6 +996,7 @@ class UserSender:
                 if not messages:
                     await self.update_status("Sleeping (No ads)")
                     try:
+                        self.wake_up_event.clear()
                         await asyncio.wait_for(self.wake_up_event.wait(), timeout=60)
                     except asyncio.TimeoutError:
                         pass
@@ -1004,11 +1008,18 @@ class UserSender:
                     shuffle_mode = False
                     interval_minutes = 20
                     send_mode = "sequential"
+                    group_gap = GROUP_GAP_SECONDS
+                    msg_gap = MESSAGE_GAP_SECONDS
                 else:
                     copy_mode = config.get("copy_mode", False)
                     shuffle_mode = config.get("shuffle_mode", False)
                     interval_minutes = config.get("interval_min", DEFAULT_INTERVAL_MINUTES)
                     send_mode = config.get("send_mode", "sequential")
+                    group_gap = config.get("group_gap", GROUP_GAP_SECONDS)
+                    msg_gap = config.get("message_gap", MESSAGE_GAP_SECONDS)
+                
+                self.adaptive_group_gap.base_gap = group_gap
+                self.adaptive_msg_gap.base_gap = msg_gap
                 
                 if shuffle_mode:
                     self.logger.info("🔀 Shuffle Mode: Randomized group order.")
@@ -1030,6 +1041,11 @@ class UserSender:
                     for msg in messages:
                         for group in groups:
                             tasks.append((msg, group))
+                elif send_mode in ("cycle", "loop", "single"):
+                    current_ad_idx = config.get("current_ad_index", 0)
+                    selected_msg = messages[current_ad_idx % len(messages)]
+                    for group in groups:
+                        tasks.append((selected_msg, group))
                 elif send_mode == "rotate":
                     for i, group in enumerate(groups):
                         msg = messages[i % len(messages)]
@@ -1051,6 +1067,7 @@ class UserSender:
                 skipped_dedup = 0
                 last_send_time = None
                 last_msg_id = None
+                last_chat_id = None
 
                 # --- Animated Progress Tracker Setup ---
                 total_tasks = len(tasks)
@@ -1112,6 +1129,7 @@ class UserSender:
                     if getattr(self, 'ads_updated', False):
                         self.logger.info("📢 Ad update detected mid-cycle! Aborting current task queue to send updated ads immediately.")
                         self.ads_updated = False
+                        self.wake_up_event.clear()
                         break
 
                     # Night mode check every 10 tasks
@@ -1144,8 +1162,11 @@ class UserSender:
                     
                     # Enforce timing gap before sending
                     if last_send_time is not None:
-                        # Determine which gap to use
-                        if send_mode == "sequential" and last_msg_id is not None and msg.id != last_msg_id:
+                        # Determine which gap to use:
+                        # Use Msg Gap when switching message or when sending consecutive messages to the same group
+                        is_same_group = (last_chat_id is not None and chat_id == last_chat_id)
+                        is_different_msg = (last_msg_id is not None and msg.id != last_msg_id)
+                        if is_same_group or (send_mode == "sequential" and is_different_msg):
                             target_gap = self.adaptive_msg_gap.get_gap()
                             gap_type = "Msg Gap"
                         else:
@@ -1155,15 +1176,26 @@ class UserSender:
                         elapsed = (datetime.utcnow() - last_send_time).total_seconds()
                         if elapsed < target_gap:
                             sleep_time = target_gap - elapsed
-                            await self.update_status(f"{gap_type} ({int(sleep_time)}s)")
-                            try:
-                                await asyncio.wait_for(self.wake_up_event.wait(), timeout=sleep_time)
-                                if getattr(self, 'ads_updated', False):
-                                    self.logger.info("📢 Ad update detected during delay! Aborting cycle immediately to send updated ads.")
-                                    self.ads_updated = False
-                                    break
-                            except asyncio.TimeoutError:
-                                pass
+                            sleep_start = datetime.utcnow()
+                            while (datetime.utcnow() - sleep_start).total_seconds() < sleep_time and self.running:
+                                rem_s = int(sleep_time - (datetime.utcnow() - sleep_start).total_seconds())
+                                await self.update_status(f"{gap_type} ({rem_s}s)")
+                                chunk = min(10.0, max(0.5, sleep_time - (datetime.utcnow() - sleep_start).total_seconds()))
+                                try:
+                                    self.wake_up_event.clear()
+                                    await asyncio.wait_for(self.wake_up_event.wait(), timeout=chunk)
+                                    if getattr(self, 'ads_updated', False):
+                                        self.logger.info("📢 Ad update detected during delay! Aborting cycle immediately to send updated ads.")
+                                        self.ads_updated = False
+                                        self.wake_up_event.clear()
+                                        break
+                                except asyncio.TimeoutError:
+                                    pass
+                            
+                            if getattr(self, 'ads_updated', False) or not self.running:
+                                self.ads_updated = False
+                                self.wake_up_event.clear()
+                                break
 
                     self.logger.info(f"📤 [{i+1}/{len(tasks)}] → {chat_title}")
                     await self.update_status(f"Sending ({i+1}/{len(tasks)})")
@@ -1173,6 +1205,7 @@ class UserSender:
                     # Update timing indicators for next task
                     last_send_time = datetime.utcnow()
                     last_msg_id = msg.id
+                    last_chat_id = chat_id
                     
                     if not self.running:
                         self.logger.info("Aborting cycle loop: session is stopping (possibly due to circuit breaker).")
@@ -1183,6 +1216,14 @@ class UserSender:
                         self._sent_this_cycle.add(dedup_key)
                         success_count += 1
                         health_success += 1
+                        self.message_counter += 1
+                        
+                        # Organic Stealth Rest Break: take a natural 60-90s pause every 25 sends
+                        if self.message_counter > 0 and self.message_counter % 25 == 0:
+                            rest_s = random.randint(60, 90)
+                            self.logger.info(f"☕ Organic rest break ({rest_s}s) after {self.message_counter} total sends...")
+                            await self.update_status(f"Coffee Break ({rest_s}s)")
+                            await asyncio.sleep(rest_s)
                     else:
                         failed_groups.append(chat_title)
                         failed_count += 1
@@ -1226,6 +1267,14 @@ class UserSender:
                     actual_interval = max(interval_minutes, MIN_INTERVAL_MINUTES)
                 cycle_duration = (datetime.utcnow() - self._cycle_start_time).total_seconds()
                 self._last_cycle_duration = cycle_duration
+                
+                # Advance ad index for next cycle if in cycle/loop mode
+                if send_mode in ("cycle", "loop", "single") and messages:
+                    current_ad_idx = config.get("current_ad_index", 0)
+                    next_ad_idx = (current_ad_idx + 1) % len(messages)
+                    from models.user import update_user_config
+                    asyncio.create_task(update_user_config(self.user_id, current_ad_index=next_ad_idx))
+                    self.logger.info(f"🔄 Ad Cycle: Active ad rotated from index {current_ad_idx} to {next_ad_idx} for next cycle.")
                 
                 if success_groups or failed_groups:
                     sends_24h_success = 0
@@ -1632,14 +1681,25 @@ class UserSender:
             if not entity:
                 return (False, False, 0)
             
-            # ── V6: Dynamic organic pre-send action (100% chance, 1.5-3s) ─
+            # ── V6 Stealth: Read History Simulation ──────────────────────
+            # Mimics an organic human user opening and viewing the group before sending
+            try:
+                from telethon.tl.functions.messages import ReadHistoryRequest
+                await self.client(ReadHistoryRequest(peer=entity, max_id=0))
+            except Exception:
+                pass
+
+            # ── V6: Dynamic organic pre-send action (1.2-2.5s) ─
+            from telethon.tl.types import MessageMediaWebPage
+            media_file = None if isinstance(message.media, MessageMediaWebPage) else message.media
+
             action_type = 'typing'
-            if message.media:
-                media_class = type(message.media).__name__
+            if media_file:
+                media_class = type(media_file).__name__
                 if "Photo" in media_class:
                     action_type = 'photo'
                 elif "Document" in media_class:
-                    doc = getattr(message.media, 'document', None)
+                    doc = getattr(media_file, 'document', None)
                     mime = getattr(doc, 'mime_type', '') if doc else ''
                     if 'video' in mime:
                         action_type = 'video'
@@ -1652,7 +1712,7 @@ class UserSender:
             
             try:
                 async with self.client.action(entity, action_type):
-                    await asyncio.sleep(random.uniform(0.8, 1.5))
+                    await asyncio.sleep(random.uniform(1.2, 2.5))
             except Exception:
                 pass
 
@@ -1681,7 +1741,7 @@ class UserSender:
                 await self.client.send_message(
                     entity=entity,
                     message=ad_text,
-                    file=message.media,
+                    file=media_file,
                     formatting_entities=message.entities if orig_text else None,
                     reply_to=topic_id
                 )
@@ -1693,18 +1753,19 @@ class UserSender:
                     await self.client.send_message(
                         entity=entity,
                         message=ad_text,
-                        file=message.media,
+                        file=media_file,
                         formatting_entities=message.entities if orig_text else None
                     )
                 # 2. Expired media / file reference invalid retry
-                elif message.media and ("MESSAGE_ID_INVALID" in err_str or "FILE_REFERENCE_EXPIRED" in err_str or "OPERATION ON SUCH MESSAGE" in err_str):
+                elif media_file and ("MESSAGE_ID_INVALID" in err_str or "FILE_REFERENCE_EXPIRED" in err_str or "OPERATION ON SUCH MESSAGE" in err_str):
                     self.logger.info(f"Media reference expired, re-fetching Saved Message {message.id}...")
                     fresh_msg = await self.client.get_messages("me", ids=message.id)
-                    if fresh_msg and fresh_msg.media:
+                    fresh_file = None if (fresh_msg and fresh_msg.media and isinstance(fresh_msg.media, MessageMediaWebPage)) else getattr(fresh_msg, 'media', None)
+                    if fresh_msg and fresh_file:
                         await self.client.send_message(
                             entity=entity,
                             message=ad_text,
-                            file=fresh_msg.media,
+                            file=fresh_file,
                             formatting_entities=fresh_msg.entities if orig_text else None,
                             reply_to=topic_id
                         )
@@ -1817,7 +1878,27 @@ class UserSender:
                 return (False, False, 0)
 
             elif err_code == "SLOWMODE":
-                self.logger.warning(f"⏳ Slow mode in {chat_title} — skipping for now")
+                seconds = getattr(e, 'seconds', 0)
+                if seconds and seconds <= 60:
+                    self.logger.warning(f"⏳ Slowmode wait ({seconds}s) on {chat_title} — waiting short cooldown...")
+                    await asyncio.sleep(seconds + 1)
+                    try:
+                        await self.client.send_message(
+                            entity=entity,
+                            message=ad_text,
+                            file=media_file,
+                            formatting_entities=message.entities if orig_text else None,
+                            reply_to=topic_id
+                        )
+                        self.adaptive_group_gap.on_success()
+                        self.adaptive_msg_gap.on_success()
+                        self.error_streak = 0
+                        asyncio.create_task(self.log_send(chat_id=chat_id, saved_msg_id=message.id, status="success"))
+                        asyncio.create_task(clear_group_fail(self.user_id, chat_id))
+                        return (True, False, 0)
+                    except Exception:
+                        pass
+                self.logger.warning(f"⏳ Slow mode in {chat_title} — skipping without penalty")
                 asyncio.create_task(self.log_send(chat_id, message.id, "skipped", disp_msg))
                 return (False, False, 0)
 

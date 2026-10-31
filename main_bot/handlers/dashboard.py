@@ -6,7 +6,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 from db.models import get_all_user_sessions, get_plan, get_user_config, get_group_count, get_account_stats, update_user_config
-from main_bot.utils.keyboards import get_premium_dashboard_keyboard, get_free_dashboard_keyboard, get_add_account_keyboard
+from main_bot.utils.keyboards import (
+    get_premium_dashboard_keyboard,
+    get_free_dashboard_keyboard,
+    get_add_account_keyboard,
+    get_manage_gaps_keyboard
+)
 from config import MIN_INTERVAL_MINUTES
 from shared.utils import escape_markdown
 import datetime
@@ -146,6 +151,8 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fwd_status = "🔴 *PAUSED*"
             
         interval = config.get("interval_min", MIN_INTERVAL_MINUTES)
+        group_gap = config.get("group_gap", 40)
+        msg_gap = config.get("message_gap", 120)
         copy_icon = "🟢" if config.get("copy_mode") else "⚫"
         shuffle_icon = "🟢" if config.get("shuffle_mode") else "⚫"
         send_mode = config.get("send_mode", "sequential").title()
@@ -171,6 +178,7 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚙️ *PREMIUM SETTINGS*
   {copy_icon} Copy Mode ▪ {shuffle_icon} Shuffle
   🔄 Send Mode: {send_mode}
+  ⏱️ Delays: {group_gap}s (Group) ▪ {msg_gap}s (Msg)
   {responder_icon} Responder: _{reply_preview}_
 
 💡 *TIP:* Send `.addgroup <url>` in Saved Messages to add target groups!
@@ -189,6 +197,9 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             fwd_status = "🔴 *PAUSED*"
             
+        group_gap = config.get("group_gap", 40)
+        msg_gap = config.get("message_gap", 120)
+
         dashboard_text = f"""
 📊 *FREE DASHBOARD* — {user_name}
 
@@ -203,7 +214,8 @@ async def show_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
   ➤ Groups: {group_count} ▪ Total Sent: {total_sends}
   ➤ Status: {await get_group_status_summary(user_id)}
   ➤ Interval: ⏳ Fixed 20 min (Premium: custom)
-  ➤ Send Mode: 🔄 Sequential only (Premium: rotate/random)
+  ➤ Send Mode: 🔄 Sequential only (Premium: cycle/rotate/random/smart)
+  ➤ Delays: ⏱️ {group_gap}s Group ▪ {msg_gap}s Msg
 
 📢 *FREE TIER REQUIREMENTS:*
   1. Set your Telegram Bio to: `Fʀᴇᴇ Aᴅs Bᴏᴛ Bʏ @SpinifyAdsBot • Pᴏᴡᴇʀᴇᴅ Bʏ @PhiloBots`.
@@ -265,7 +277,8 @@ async def toggle_send_mode_callback(update: Update, context: ContextTypes.DEFAUL
     
     # Define rotation
     mode_rotation = {
-        "sequential": "rotate",
+        "sequential": "cycle",
+        "cycle": "rotate",
         "rotate": "random",
         "random": "smart",
         "smart": "sequential"
@@ -279,6 +292,65 @@ async def toggle_send_mode_callback(update: Update, context: ContextTypes.DEFAUL
     # Refresh dashboard
     await query.answer(f"Send Mode changed to: {next_mode.title()}")
     await show_dashboard(update, context)
+
+
+async def manage_gaps_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show delay gap configuration keyboard."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    
+    config = await get_user_config(user_id)
+    group_gap = config.get("group_gap", 40)
+    msg_gap = config.get("message_gap", 120)
+    
+    text = (
+        "⏱️ *DELAY GAP SETTINGS*\n\n"
+        f"• *Group Gap:* `{group_gap}s` (delay between each group)\n"
+        f"• *Message Gap:* `{msg_gap}s` (delay between ads in same group)\n\n"
+        "Tap a preset below to adjust delays. Changes take effect on the next dispatch cycle:"
+    )
+    if query:
+        await query.answer()
+    from shared.utils import safe_reply
+    await safe_reply(update, text, reply_markup=get_manage_gaps_keyboard(group_gap, msg_gap))
+
+
+async def set_gap_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle preset selection for delay gaps."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    data = query.data if query else ""
+    
+    parts = data.split(":")
+    if len(parts) == 3:
+        gap_type = parts[1]
+        try:
+            val = int(parts[2])
+            if gap_type == "group":
+                await update_user_config(user_id, group_gap=val)
+                if query:
+                    await query.answer(f"Group gap set to {val}s")
+            elif gap_type == "msg":
+                await update_user_config(user_id, message_gap=val)
+                if query:
+                    await query.answer(f"Message gap set to {val}s")
+        except Exception:
+            if query:
+                await query.answer("Failed to update delay gap", show_alert=True)
+            
+    # Refresh keyboard with new values
+    config = await get_user_config(user_id)
+    group_gap = config.get("group_gap", 40)
+    msg_gap = config.get("message_gap", 120)
+    
+    text = (
+        "⏱️ *DELAY GAP SETTINGS*\n\n"
+        f"• *Group Gap:* `{group_gap}s` (delay between each group)\n"
+        f"• *Message Gap:* `{msg_gap}s` (delay between ads in same group)\n\n"
+        "Tap a preset below to adjust delays. Changes take effect on the next dispatch cycle:"
+    )
+    from shared.utils import safe_reply
+    await safe_reply(update, text, reply_markup=get_manage_gaps_keyboard(group_gap, msg_gap))
 
 
 async def clean_groups_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
